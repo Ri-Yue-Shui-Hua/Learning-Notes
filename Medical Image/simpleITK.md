@@ -217,6 +217,65 @@ def produceRandomlyTranslatedImage(image, label):
 
 
 
+
+
+```python
+# -*- coding : UTF-8 -*-
+# @file   : translation_img.py
+# @Time   : 2022/8/16 0016 22:08
+# @Author : wmz
+
+import SimpleITK as sitk
+import numpy as np
+import os
+from glob import glob
+
+
+def resample(image, transform):
+    # Output image Origin, Spacing, Size, Direction are taken from the reference
+    # image in this call to Resample
+    reference_image = image
+    interpolator = sitk.sitkCosineWindowedSinc
+    default_value = -1024
+    return sitk.Resample(image, reference_image, transform,
+                         interpolator, default_value)
+
+
+def write_sitk_img(sitk_img, file):
+    spacing = sitk_img.GetSpacing()
+    origin = sitk_img.GetOrigin()
+    direction = sitk_img.GetDirection()
+    sitk.WriteImage(sitk_img, file)
+
+
+if __name__ == "__main__":
+    dimension = 3
+    print('*Translation Transform*')
+    img_dir = r"D:\Dataset\Segmentation\Femur\Femur_spacing2"
+    output_dir = r"D:\Dataset\Segmentation\Femur\translation_sitk"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    files = sorted(glob(os.path.join(img_dir, '*.nii.gz')))
+    file = files[0]
+    sitk_img = sitk.ReadImage(file)
+    spacing = sitk_img.GetSpacing()
+    origin = sitk_img.GetOrigin()
+    direction = sitk_img.GetDirection()
+    dimension = 3
+    t = (1, 80, 3)
+    translation = sitk.TranslationTransform(dimension, t)
+
+    # Copy the translational component.
+    rigid_euler = sitk.Euler3DTransform()
+    rigid_euler.SetTranslation(translation.GetOffset())
+    output_img = resample(sitk_img, rigid_euler)
+    output_file = file.replace(img_dir, output_dir)
+    write_sitk_img(output_img, output_file)
+
+```
+
+
+
 ### 旋转
 
 参考：[SimpleITK Euler3D transform, problem with output size/resampling - Beginner Questions - ITK](https://discourse.itk.org/t/simpleitk-euler3d-transform-problem-with-output-size-resampling/4387)

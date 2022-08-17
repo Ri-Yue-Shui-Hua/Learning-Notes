@@ -380,6 +380,279 @@ string& erase(int pos, int n = npos);//删除从Pos开始的n个字符
 
 
 
+**string和c-style字符串转换**
+
+```cpp
+//string 转 char*
+string str = "it";
+const char* cstr = str.c_str();
+//char* 转 string 
+char* s = "it";
+string str(s);
+```
+
+在c++中存在一个从const char*到string的隐式类型转换，却不存在从一个string对象到C_string的自动类型转换。对于string类型的字符串，可以通过c_str()函数返回string对象对应的C_string.
+
+通常，程序员在整个程序中应坚持使用string类对象，直到必须将内容转化为char*时才将其转换为C_string.
+为了修改string字符串的内容，下标操作符[]和at都会返回字符的引用。但当字符串的内存被重新分配之后，可能发生错误.
+
+```cpp
+string s = "abcdefg";
+	char& a = s[2];
+	char& b = s[3];
+
+	a = '1';
+	b = '2';
+
+	cout << s << endl;
+	cout << (int*)s.c_str() << endl;
+
+	s = "pppppppppppppppppppppppp";
+
+	//a = '1';
+	//b = '2';
+
+	cout << s << endl;
+	cout << (int*)s.c_str() << endl;
+
+```
+
+### vector容器
+
+**vector容器基本概念**
+vector的数据安排以及操作方式，与array非常相似，两者的唯一差别在于空间的运用的灵活性。
+
+Array是静态空间，一旦配置了就不能改变，要换大一点或者小一点的空间，可以，一切琐碎得由自己来，首先配置一块新的空间，然后将旧空间的数据搬往新空间，再释放原来的空间。
+
+Vector是动态空间，随着元素的加入，它的内部机制会自动扩充空间以容纳新元素。因此vector的运用对于内存的合理利用与运用的灵活性有很大的帮助，我们再也不必害怕空间不足而一开始就要求一个大块头的array了。
+
+Vector的实现技术，关键在于其对大小的控制以及重新配置时的数据移动效率，一旦vector旧空间满了，如果客户每新增一个元素，vector内部只是扩充一个元素的空间，实为不智，因为所谓的扩充空间(不论多大)，一如刚所说，是”配置新空间-数据移动-释放旧空间”的大工程,时间成本很高，应该加入某种未雨绸缪的考虑，稍后我们便可以看到vector的空间配置策略。
+
+![image-20220817223322756](STL.assets/image-20220817223322756.png)
+
+
+
+**vector迭代器**
+Vector维护一个线性空间，所以不论元素的型别如何，普通指针都可以作为vector的迭代器，因为vector迭代器所需要的操作行为，如operaroe*, operator->, operator++, operator–, operator+, operator-, operator+=, operator-=, 普通指针天生具备。
+
+Vector支持随机存取，而普通指针正有着这样的能力。所以vector提供的是随机访问迭代器(Random Access Iterators).
+
+根据上述描述，如果我们写如下的代码：
+```cpp
+Vector<int>::iterator it1;
+Vector<Teacher>::iterator it2;
+```
+
+it1的型别其实就是Int*,it2的型别其实就是Teacher*.
+
+```cpp
+#define _CRT_SECURE_NO_WARNINGS
+#include<iostream>
+#include<vector>
+using namespace std;
+
+int main(){
+
+	vector<int> v;
+	for (int i = 0; i < 10;i ++){
+		v.push_back(i);
+		cout << v.capacity() << endl;  // v.capacity()容器的容量
+	}
+
+
+	system("pause");
+	return EXIT_SUCCESS;
+}
+
+```
+
+
+
+**vector的数据结构**
+Vector所采用的数据结构非常简单，线性连续空间，它以两个迭代器_Myfirst和_Mylast分别指向配置得来的连续空间中目前已被使用的范围，并以迭代器_Myend指向整块连续内存空间的尾端。
+
+为了降低空间配置时的速度成本，vector实际配置的大小可能比客户端需求大一些，以备将来可能的扩充，这边是容量的概念。换句话说，一个vector的容量永远大于或等于其大小，一旦容量等于大小，便是满载，下次再有新增元素，整个vector容器就得另觅居所。
+
+```bash
+所谓动态增加大小，并不是在原空间之后续接新空间(因为无法保证原空间之后尚有可配置的空间)，而是一块更大的内存空间，然后将原数据拷贝新空间，并释放原空间。因此，对vector的任何操作，一旦引起空间的重新配置，指向原vector的所有迭代器就都失效了。这是程序员容易犯的一个错误，务必小心。
+```
+
+
+
+### vector常用[API](https://so.csdn.net/so/search?q=API&spm=1001.2101.3001.7020)操作
+
+**vector构造函数**
+
+```cpp
+vector<T> v; //采用模板实现类实现，默认构造函数
+vector(v.begin(), v.end());//将v[begin(), end())区间中的元素拷贝给本身。
+vector(n, elem);//构造函数将n个elem拷贝给本身。
+vector(const vector &vec);//拷贝构造函数。
+```
+
+
+
+```cpp
+//例子 使用第二个构造函数 我们可以...
+int arr[] = {2,3,4,1,9};
+vector<int> v1(arr, arr + sizeof(arr) / sizeof(int)); 
+```
+
+**vector常用赋值操作**
+
+```cpp
+assign(beg, end);//将[beg, end)区间中的数据拷贝赋值给本身。
+assign(n, elem);//将n个elem拷贝赋值给本身。
+vector& operator=(const vector  &vec);//重载等号操作符
+swap(vec);// 将vec与本身的元素互换。
+```
+
+**vector大小操作**
+
+```cpp
+size();//返回容器中元素的个数
+empty();//判断容器是否为空
+resize(int num);//重新指定容器的长度为num，若容器变长，则以默认值填充新位置。如果容器变短，则末尾超出容器长度的元素被删除。
+resize(int num, elem);//重新指定容器的长度为num，若容器变长，则以elem值填充新位置。如果容器变短，则末尾超出容器长>度的元素被删除。
+capacity();//容器的容量
+reserve(int len);//容器预留len个元素长度，预留位置不初始化，元素不可访问。
+```
+
+**vector数据存取操作**
+
+```cpp
+at(int idx); //返回索引idx所指的数据，如果idx越界，抛出out_of_range异常。
+operator[];//返回索引idx所指的数据，越界时，运行直接报错
+front();//返回容器中第一个数据元素
+back();//返回容器中最后一个数据元素
+```
+
+**vector插入和删除操作**
+
+```cpp
+insert(const_iterator pos, int count,ele);//迭代器指向位置pos插入count个元素ele.
+push_back(ele); //尾部插入元素ele
+pop_back();//删除最后一个元素
+erase(const_iterator start, const_iterator end);//删除迭代器从start到end之间的元素
+erase(const_iterator pos);//删除迭代器指向的元素
+clear();//删除容器中所有元素
+```
+
+vector 小demo: 巧用swap，收缩内存空间
+
+```cpp
+#define _CRT_SECURE_NO_WARNINGS
+#include<iostream>
+#include<vector>
+using namespace std;
+
+int main(){
+
+	vector<int> v;
+	for (int i = 0; i < 100000;i ++){
+		v.push_back(i);
+	}
+
+	cout << "capacity:" << v.capacity() << endl;
+	cout << "size:" << v.size() << endl;
+
+	//此时 通过resize改变容器大小
+	v.resize(10);
+
+	cout << "capacity:" << v.capacity() << endl;
+	cout << "size:" << v.size() << endl;
+
+	//容量没有改变
+	vector<int>(v).swap(v);
+
+	cout << "capacity:" << v.capacity() << endl;
+	cout << "size:" << v.size() << endl;
+
+
+	system("pause");
+	return EXIT_SUCCESS;
+}
+```
+
+**reserve预留空间**
+
+```cpp
+#define _CRT_SECURE_NO_WARNINGS
+#include<iostream>
+#include<vector>
+using namespace std;
+
+int main(){
+
+	vector<int> v;
+
+	//预先开辟空间
+	v.reserve(100000);
+
+	int* pStart = NULL;
+	int count = 0;
+	for (int i = 0; i < 100000;i ++){
+		v.push_back(i);
+		if (pStart != &v[0]){
+			pStart = &v[0];
+			count++;
+		}
+	}
+
+	cout << "count:" << count << endl;
+
+	system("pause");
+	return EXIT_SUCCESS;
+}
+```
+
+
+
+### deque容器
+
+**deque容器基本概念**
+Vector容器是单向开口的连续内存空间，deque则是一种双向开口的连续线性空间。
+
+所谓的双向开口，意思是可以在头尾两端分别做元素的插入和删除操作，当然，vector容器也可以在头尾两端插入元素，但是在其头部操作效率奇差，无法被接受。Vector容器是单向开口的连续内存空间，deque则是一种双向开口的连续线性空间。
+
+所谓的双向开口，意思是可以在头尾两端分别做元素的插入和删除操作，当然，vector容器也可以在头尾两端插入元素，但是在其头部操作效率奇差，无法被接受。
+
+![image-20220817230006647](STL.assets/image-20220817230006647.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -864,6 +864,540 @@ list(const list &lst);//拷贝构造函数。
 
 
 
+**list数据元素插入和删除操作**
+
+```cpp
+push_back(elem);//在容器尾部加入一个元素
+pop_back();//删除容器中最后一个元素
+push_front(elem);//在容器开头插入一个元素
+pop_front();//从容器开头移除第一个元素
+insert(pos,elem);//在pos位置插elem元素的拷贝，返回新数据的位置。
+insert(pos,n,elem);//在pos位置插入n个elem数据，无返回值。
+insert(pos,beg,end);//在pos位置插入[beg,end)区间的数据，无返回值。
+clear();//移除容器的所有数据
+erase(beg,end);//删除[beg,end)区间的数据，返回下一个数据的位置。
+erase(pos);//删除pos位置的数据，返回下一个数据的位置。
+remove(elem);//删除容器中所有与elem值匹配的元素。
+```
+
+
+
+**list大小操作**
+
+```cpp
+size();//返回容器中元素的个数
+empty();//判断容器是否为空
+resize(num);//重新指定容器的长度为num，
+//若容器变长，则以默认值填充新位置。
+//如果容器变短，则末尾超出容器长度的元素被删除。
+resize(num, elem);//重新指定容器的长度为num，
+//若容器变长，则以elem值填充新位置。
+//如果容器变短，则末尾超出容器长度的元素被删除。
+```
+
+**list赋值操作**
+
+```cpp
+assign(beg, end);//将[beg, end)区间中的数据拷贝赋值给本身。
+assign(n, elem);//将n个elem拷贝赋值给本身。
+list& operator=(const list &lst);//重载等号操作符
+swap(lst);//将lst与本身的元素互换。
+```
+
+**list数据的存取**
+
+```cpp
+front();//返回第一个元素。
+back();//返回最后一个元素。
+```
+
+**list反转排序**
+
+```cpp
+reverse();//反转链表，比如lst包含1,3,5元素，运行此方法后，lst就包含5,3,1元素。
+sort(); //list排序
+```
+
+### set/multiset容器
+
+#### set容器基本概念
+
+Set的特性是。所有元素都会根据元素的键值自动被排序。Set的元素不像map那样可以同时拥有实值和键值，set的元素即是键值又是实值。Set不允许两个元素有相同的键值。
+
+我们不可以通过set的迭代器改变set元素的值，因为set元素值就是其键值，关系到set元素的排序规则。如果任意改变set元素值，会严重破坏set组织。换句话说，set的iterator是一种const_iterator.
+
+set拥有和list某些相同的性质，当对容器中的元素进行插入操作或者删除操作的时候，操作之前所有的迭代器，在操作完成之后依然有效，被删除的那个元素的迭代器必然是一个例外。
+
+#### multiset容器基本概念
+
+multiset特性及用法和set完全相同，唯一的差别在于它允许键值重复。set和multiset的底层实现是红黑树.
+
+**set常用API**
+**set构造函数**
+
+```cpp
+set<T> st;//set默认构造函数：
+mulitset<T> mst; //multiset默认构造函数: 
+set(const set &st);//拷贝构造函数
+```
+
+**set赋值操作**
+
+```cpp
+set& operator=(const set &st);//重载等号操作符
+swap(st);//交换两个集合容器
+```
+
+**set大小操作**
+
+```cpp
+size();//返回容器中元素的数目
+empty();//判断容器是否为空
+```
+
+**set插入和删除操作**
+
+```cpp
+insert(elem);//在容器中插入元素。
+clear();//清除所有元素
+erase(pos);//删除pos迭代器所指的元素，返回下一个元素的迭代器。
+erase(beg, end);//删除区间[beg,end)的所有元素 ，返回下一个元素的迭代器。
+erase(elem);//删除容器中值为elem的元素。
+```
+
+
+
+**set查找操作**
+
+```cpp
+find(key);//查找键key是否存在,若存在，返回该键的元素的迭代器；若不存在，返回set.end();
+count(key);//查找键key的元素个数
+lower_bound(keyElem);//返回第一个key>=keyElem元素的迭代器。
+upper_bound(keyElem);//返回第一个key>keyElem元素的迭代器。
+equal_range(keyElem);//返回容器中key与keyElem相等的上下限的两个迭代器。
+```
+
+**set的返回值 指定set排序规则举例:**
+
+```cpp
+//插入操作返回值
+void test01(){
+
+	set<int> s;
+	pair<set<int>::iterator,bool> ret = s.insert(10);
+	if (ret.second){
+		cout << "插入成功:" << *ret.first << endl;
+	}
+	else{
+		cout << "插入失败:" << *ret.first << endl;
+	}
+	
+	ret = s.insert(10);
+	if(ret.second){
+		cout << "插入成功:" << *ret.first << endl;
+	}
+	else{
+		cout << "插入失败:" << *ret.first << endl;
+	}
+
+}
+
+struct MyCompare02{
+	bool operator()(int v1,int v2){
+		return v1 > v2;
+	}
+};
+
+//set从大到小
+void test02(){
+
+	srand((unsigned int)time(NULL));
+	//我们发现set容器的第二个模板参数可以设置排序规则，默认规则是less<_Kty>
+	set<int, MyCompare02> s;
+	for (int i = 0; i < 10;i++){
+		s.insert(rand() % 100);
+	}
+	
+	for (set<int, MyCompare02>::iterator it = s.begin(); it != s.end(); it ++){
+		cout << *it << " ";
+	}
+	cout << endl;
+}
+
+//set容器中存放对象
+class Person{
+public:
+	Person(string name,int age){
+		this->mName = name;
+		this->mAge = age;
+	}
+public:
+	string mName;
+	int mAge;
+};
+
+
+struct MyCompare03{
+	bool operator()(const Person& p1,const Person& p2){
+		return p1.mAge > p2.mAge;
+	}
+};
+
+void test03(){
+
+	set<Person, MyCompare03> s;
+
+	Person p1("aaa", 20);
+	Person p2("bbb", 30);
+	Person p3("ccc", 40);
+	Person p4("ddd", 50);
+
+	s.insert(p1);
+	s.insert(p2);
+	s.insert(p3);
+	s.insert(p4);
+
+	for (set<Person, MyCompare03>::iterator it = s.begin(); it != s.end(); it++){
+		cout << "Name:" << it->mName << " Age:" << it->mAge << endl;
+	}
+
+}
+```
+
+
+
+### 对组(pair)
+
+对组(pair)将一对值组合成一个值，这一对值可以具有不同的数据类型，两个值可以分别用pair的两个公有属性first和second访问。
+类模板：`template <class T1, class T2> struct pair.`
+创建对组:
+
+```cpp
+//第一种方法创建一个对组
+pair<string, int> pair1(string("name"), 20);
+cout << pair1.first << endl; //访问pair第一个值
+cout << pair1.second << endl;//访问pair第二个值
+//第二种
+pair<string, int> pair2 = make_pair("name", 30);
+cout << pair2.first << endl;
+cout << pair2.second << endl;
+//pair=赋值
+pair<string, int> pair3 = pair2;
+cout << pair3.first << endl;
+cout << pair3.second << endl;
+```
+
+
+
+### map/multimap容器
+
+#### map/multimap基本概念
+
+Map的特性是，所有元素都会根据元素的键值自动排序。
+
+Map所有的元素都是pair,同时拥有实值和键值，pair的第一元素被视为键值，第二元素被视为实值，map不允许两个元素有相同的键值。
+
+我们不可以通过map的迭代器改变map的键值, 因为map的键值关系到map元素的排列规则，任意改变map键值将会严重破坏map组织。如果想要修改元素的实值，那么是可以的。
+
+Map和list拥有相同的某些性质，当对它的容器元素进行新增操作或者删除操作时，操作之前的所有迭代器，在操作完成之后依然有效，当然被删除的那个元素的迭代器必然是个例外。
+
+Multimap和map的操作类似，唯一区别multimap键值可重复。
+
+Map和multimap都是以红黑树为底层实现机制。
+
+#### map/multimap常用API
+
+**map构造函数**
+
+```cpp
+map<T1, T2> mapTT;//map默认构造函数: 
+map(const map &mp);//拷贝构造函数
+```
+
+**map赋值操作**
+
+```cpp
+map& operator=(const map &mp);//重载等号操作符
+swap(mp);//交换两个集合容器
+```
+
+**map大小操作**
+
+```cpp
+size();//返回容器中元素的数目
+empty();//判断容器是否为空
+```
+
+**map插入数据元素操作**
+
+```cpp
+map.insert(...); //往容器插入元素，返回pair<iterator,bool>
+map<int, string> mapStu;
+// 第一种 通过pair的方式插入对象
+mapStu.insert(pair<int, string>(3, "小张"));
+// 第二种 通过pair的方式插入对象
+mapStu.inset(make_pair(-1, "校长"));
+// 第三种 通过value_type的方式插入对象
+mapStu.insert(map<int, string>::value_type(1, "小李"));
+// 第四种 通过数组的方式插入值
+mapStu[3] = "小刘";
+mapStu[5] = "小王";
+```
+
+**map删除操作**
+
+```cpp
+clear();//删除所有元素
+erase(pos);//删除pos迭代器所指的元素，返回下一个元素的迭代器。
+erase(beg,end);//删除区间[beg,end)的所有元素 ，返回下一个元素的迭代器。
+erase(keyElem);//删除容器中key为keyElem的对组。
+```
+
+**map查找操作**
+
+```cpp
+find(key);//查找键key是否存在,若存在，返回该键的元素的迭代器；/若不存在，返回map.end();
+count(keyElem);//返回容器中key为keyElem的对组个数。对map来说，要么是0，要么是1。对multimap来说，值可能大于1。
+lower_bound(keyElem);//返回第一个key>=keyElem元素的迭代器。
+upper_bound(keyElem);//返回第一个key>keyElem元素的迭代器。
+equal_range(keyElem);//返回容器中key与keyElem相等的上下限的两个迭代器。
+```
+
+**multimap案例**
+
+```cpp
+//公司今天招聘了5个员工，5名员工进入公司之后，需要指派员工在那个部门工作
+//人员信息有: 姓名 年龄 电话 工资等组成
+//通过Multimap进行信息的插入 保存 显示
+//分部门显示员工信息 显示全部员工信息
+
+#define _CRT_SECURE_NO_WARNINGS
+
+#include<iostream>
+#include<map>
+#include<string>
+#include<vector>
+using namespace std;
+
+//multimap 案例
+//公司今天招聘了 5 个员工，5 名员工进入公司之后，需要指派员工在那个部门工作
+//人员信息有: 姓名 年龄 电话 工资等组成
+//通过 Multimap 进行信息的插入 保存 显示
+//分部门显示员工信息 显示全部员工信息
+
+
+#define SALE_DEPATMENT 1 //销售部门
+#define DEVELOP_DEPATMENT 2 //研发部门
+#define FINACIAL_DEPATMENT 3 //财务部门
+#define ALL_DEPATMENT 4 //所有部门
+
+//员工类
+class person{
+public:
+	string name; //员工姓名
+	int age; //员工年龄
+	double salary; //员工工资
+	string tele; //员工电话
+};
+
+//创建5个员工
+void CreatePerson(vector<person>& vlist){
+
+	string seed = "ABCDE";
+	for (int i = 0; i < 5; i++){
+		person p;
+		p.name = "员工";
+		p.name += seed[i];
+		p.age = rand() % 30 + 20;
+		p.salary = rand() % 20000 + 10000;
+		p.tele = "010-8888888";
+		vlist.push_back(p);
+	}
+
+}
+
+//5名员工分配到不同的部门
+void PersonByGroup(vector<person>& vlist, multimap<int, person>& plist){
+
+
+	int operate = -1; //用户的操作
+
+	for (vector<person>::iterator it = vlist.begin(); it != vlist.end(); it++){
+
+		cout << "当前员工信息:" << endl;
+		cout << "姓名：" << it->name << " 年龄:" << it->age << " 工资:" << it->salary << " 电话：" << it->tele << endl;
+		cout << "请对该员工进行部门分配(1 销售部门, 2 研发部门, 3 财务部门):" << endl;
+		scanf("%d", &operate);
+
+		while (true){
+
+			if (operate == SALE_DEPATMENT){  //将该员工加入到销售部门
+				plist.insert(make_pair(SALE_DEPATMENT, *it));
+				break;
+			}
+			else if (operate == DEVELOP_DEPATMENT){
+				plist.insert(make_pair(DEVELOP_DEPATMENT, *it));
+				break;
+			}
+			else if (operate == FINACIAL_DEPATMENT){
+				plist.insert(make_pair(FINACIAL_DEPATMENT, *it));
+				break;
+			}
+			else{
+				cout << "您的输入有误，请重新输入(1 销售部门, 2 研发部门, 3 财务部门):" << endl;
+				scanf("%d", &operate);
+			}
+
+		}
+
+	}
+	cout << "员工部门分配完毕!" << endl;
+	cout << "***********************************************************" << endl;
+
+}
+
+//打印员工信息
+void printList(multimap<int, person>& plist, int myoperate){
+
+	if (myoperate == ALL_DEPATMENT){
+		for (multimap<int, person>::iterator it = plist.begin(); it != plist.end(); it++){
+			cout << "姓名：" << it->second.name << " 年龄:" << it->second.age << " 工资:" << it->second.salary << " 电话：" << it->second.tele << endl;
+		}
+		return;
+	}
+
+	multimap<int, person>::iterator it = plist.find(myoperate);
+	int depatCount = plist.count(myoperate);
+	int num = 0;
+	if (it != plist.end()){
+		while (it != plist.end() && num < depatCount){
+			cout << "姓名：" << it->second.name << " 年龄:" << it->second.age << " 工资:" << it->second.salary << " 电话：" << it->second.tele << endl;
+			it++;
+			num++;
+		}
+	}
+}
+
+//根据用户操作显示不同部门的人员列表
+void ShowPersonList(multimap<int, person>& plist, int myoperate){
+
+	switch (myoperate)
+	{
+	case SALE_DEPATMENT:
+		printList(plist, SALE_DEPATMENT);
+		break;
+	case DEVELOP_DEPATMENT:
+		printList(plist, DEVELOP_DEPATMENT);
+		break;
+	case FINACIAL_DEPATMENT:
+		printList(plist, FINACIAL_DEPATMENT);
+		break;
+	case ALL_DEPATMENT:
+		printList(plist, ALL_DEPATMENT);
+		break;
+	}
+}
+
+//用户操作菜单
+void PersonMenue(multimap<int, person>& plist){
+
+	int flag = -1;
+	int isexit = 0;
+	while (true){
+		cout << "请输入您的操作((1 销售部门, 2 研发部门, 3 财务部门, 4 所有部门, 0退出)：" << endl;
+		scanf("%d", &flag);
+
+		switch (flag)
+		{
+		case SALE_DEPATMENT:
+			ShowPersonList(plist, SALE_DEPATMENT);
+			break;
+		case DEVELOP_DEPATMENT:
+			ShowPersonList(plist, DEVELOP_DEPATMENT);
+			break;
+		case FINACIAL_DEPATMENT:
+			ShowPersonList(plist, FINACIAL_DEPATMENT);
+			break;
+		case ALL_DEPATMENT:
+			ShowPersonList(plist, ALL_DEPATMENT);
+			break;
+		case 0:
+			isexit = 1;
+			break;
+		default:
+			cout << "您的输入有误，请重新输入!" << endl;
+			break;
+		}
+
+		if (isexit == 1){
+			break;
+		}
+	}
+
+}
+
+int main(){
+
+	vector<person>  vlist; //创建的5个员工 未分组
+	multimap<int, person> plist; //保存分组后员工信息
+
+	//创建5个员工
+	CreatePerson(vlist);
+	//5名员工分配到不同的部门
+	PersonByGroup(vlist, plist);
+	//根据用户输入显示不同部门员工信息列表 或者 显示全部员工的信息列表
+	PersonMenue(plist);
+
+	system("pause");
+	return EXIT_SUCCESS;
+}
+
+```
+
+
+
+STL容器使用时机
+
+![image-20220822224127076](STL.assets/image-20220822224127076.png)
+
+
+
+vector的使用场景：比如软件历史操作记录的存储，我们经常要查看历史记录，比如上一次的记录，上上次的记录，但却不会去删除记录，因为记录是事实的描述。
+
+deque的使用场景：比如排队购票系统，对排队者的存储可以采用deque，支持头端的快速移除，尾端的快速添加。如果采用vector，则头端移除时，会移动大量的数据，速度慢。
+
+vector与deque的比较：
+一：vector.at()比deque.at()效率高，比如vector.at(0)是固定的，deque的开始位置 却是不固定的。
+二：如果有大量释放操作的话，vector花的时间更少，这跟二者的内部实现有关。
+三：deque支持头部的快速插入与快速移除，这是deque的优点。
+
+list的使用场景：比如公交车乘客的存储，随时可能有乘客下车，支持频繁的不确实位置元素的移除插入。
+
+set的使用场景：比如对手机游戏的个人得分记录的存储，存储要求从高分到低分的顺序排列。
+
+map的使用场景：比如按ID号存储十万个用户，想要快速要通过ID查找对应的用户。二叉树的查找效率，这时就体现出来了。如果是vector容器，最坏的情况下可能要遍历完整个容器才能找到该用户。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

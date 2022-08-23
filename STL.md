@@ -1356,7 +1356,9 @@ int main(){
 
 
 
-STL容器使用时机
+## STL容器使用时机
+
+
 
 ![image-20220822224127076](STL.assets/image-20220822224127076.png)
 
@@ -1379,36 +1381,776 @@ map的使用场景：比如按ID号存储十万个用户，想要快速要通过
 
 
 
+## 常用算法
+
+### 函数对象
+
+重载函数调用操作符的类，其对象常称为函数对象（function object），即它们是行为类似函数的对象，也叫仿函数(functor),其实就是重载“()”操作符，使得类对象可以像函数那样调用。
+
+注意:
+
+- 函数对象(仿函数)是一个类，不是一个函数。
+- 函数对象(仿函数)重载了”() ”操作符使得它可以像函数一样调用。
+
+分类:假定某个类有一个重载的operator()，而且重载的operator()要求获取一个参数，我们就将这个类称为“一元仿函数”（unary functor）；相反，如果重载的operator()要求获取两个参数，就将这个类称为“二元仿函数”（binary functor）。
+
+函数对象的作用:
+STL提供的算法往往都有两个版本，其中一个版本表现出最常用的某种运算，另一版本则允许用户通过template参数的形式来指定所要采取的策略。
+
+```cpp
+//函数对象是重载了函数调用符号的类
+class MyPrint
+{
+public:
+	MyPrint()
+	{
+		m_Num = 0;
+	}
+	int m_Num;
+
+public:
+	void operator() (int num)
+	{
+		cout << num << endl;
+		m_Num++;
+	}
+};
+
+//函数对象
+//重载了()操作符的类实例化的对象，可以像普通函数那样调用,可以有参数 ，可以有返回值
+void test01()
+{
+	MyPrint myPrint;
+	myPrint(20);
+
+}
+// 函数对象超出了普通函数的概念，可以保存函数的调用状态
+void test02()
+{
+	MyPrint myPrint;
+	myPrint(20);
+	myPrint(20);
+	myPrint(20);
+	cout << myPrint.m_Num << endl;
+}
+
+void doBusiness(MyPrint print,int num)
+{
+	print(num);
+}
+
+//函数对象作为参数
+void test03()
+{
+	//参数1：匿名函数对象
+	doBusiness(MyPrint(),30);
+}
+```
 
 
 
+总结：
+1、函数对象通常不定义构造函数和析构函数，所以在构造和析构时不会发生任何问题，避免了函数调用的运行时问题。
+2、函数对象超出普通函数的概念，函数对象可以有自己的状态
+3、函数对象可内联编译，性能好。用函数指针几乎不可能
+4、模版函数对象使函数对象具有通用性，这也是它的优势之一
+
+###  谓词
+
+谓词是指普通函数或重载的operator()返回值是bool类型的函数对象(仿函数)。如果operator接受一个参数，那么叫做一元谓词,如果接受两个参数，那么叫做二元谓词，谓词可作为一个判断式。
+
+```cpp
+class GreaterThenFive
+{
+public:
+	bool operator()(int num)
+	{
+		return num > 5;
+	}
+
+};
+//一元谓词
+void test01()
+{
+	vector<int> v;
+	for (int i = 0; i < 10;i ++)
+	{
+		v.push_back(i);
+	}
+	
+	 vector<int>::iterator it =  find_if(v.begin(), v.end(), GreaterThenFive());
+	 if (it == v.end())
+	 {
+		 cout << "没有找到" << endl;
+	 }
+	 else
+	 {
+		 cout << "找到了: " << *it << endl;
+	 }
+}
+
+//二元谓词
+class MyCompare
+{
+public:
+	bool operator()(int num1, int num2)
+	{
+		return num1 > num2;
+	}
+};
+
+void test02()
+{
+	vector<int> v;
+	v.push_back(10);
+	v.push_back(40);
+	v.push_back(20);
+	v.push_back(90);
+	v.push_back(60);
+
+	//默认从小到大
+	sort(v.begin(), v.end());
+	for (vector<int>::iterator it = v.begin(); it != v.end();it++)
+	{
+		cout << *it << " ";
+	}
+	cout << endl;
+	cout << "----------------------------" << endl;
+	//使用函数对象改变算法策略，排序从大到小
+	sort(v.begin(), v.end(),MyCompare());
+	for (vector<int>::iterator it = v.begin(); it != v.end(); it++)
+	{
+		cout << *it << " ";
+	}
+	cout << endl;
+}
+```
+
+### 内建函数对象
+
+STL内建了一些函数对象。分为:算数类函数对象,关系运算类函数对象，逻辑运算类仿函数。这些仿函数所产生的对象，用法和一般函数完全相同，当然我们还可以产生无名的临时对象来履行函数功能。使用内建函数对象，需要引入头文件
+
+```cpp
+#include<functional>。
+```
+
+6个算数类函数对象,除了negate是一元运算，其他都是二元运算。
+
+```cpp
+template<class T> T plus<T>//加法仿函数
+template<class T> T minus<T>//减法仿函数
+template<class T> T multiplies<T>//乘法仿函数
+template<class T> T divides<T>//除法仿函数
+template<class T> T modulus<T>//取模仿函数
+template<class T> T negate<T>//取反仿函数
+```
+
+6个关系运算类函数对象,每一种都是二元运算。
+
+```cpp
+template<class T> bool equal_to<T>//等于
+template<class T> bool not_equal_to<T>//不等于
+template<class T> bool greater<T>//大于
+template<class T> bool greater_equal<T>//大于等于
+template<class T> bool less<T>//小于
+template<class T> bool less_equal<T>//小于等于
+```
+
+逻辑运算类运算函数,not为一元运算，其余为二元运算。
+
+```cpp
+template<class T> bool logical_and<T>//逻辑与
+template<class T> bool logical_or<T>//逻辑或
+template<class T> bool logical_not<T>//逻辑非
+```
+
+内建函数对象举例:
+
+```cpp
+//取反仿函数
+void test01()
+{
+	negate<int> n;
+	cout << n(50) << endl;
+}
+
+//加法仿函数
+void test02()
+{
+	plus<int> p;
+	cout << p(10, 20) << endl;
+}
+
+//大于仿函数
+void test03()
+{
+	vector<int> v;
+	srand((unsigned int)time(NULL));
+	for (int i = 0; i < 10; i++){
+		v.push_back(rand() % 100);
+	}
+
+	for (vector<int>::iterator it = v.begin(); it != v.end(); it++){
+		cout << *it << " ";
+	}
+	cout << endl;
+	sort(v.begin(), v.end(), greater<int>());
+
+	for (vector<int>::iterator it = v.begin(); it != v.end(); it++){
+		cout << *it << " ";
+	}
+	cout << endl;
+
+}
+```
+
+### 函数对象适配器
+
+```cpp
+//函数适配器bind1st bind2nd
+//现在我有这个需求 在遍历容器的时候，我希望将容器中的值全部加上100之后显示出来，怎么做？
+//我们直接给函数对象绑定参数 编译阶段就会报错
+//for_each(v.begin(), v.end(), bind2nd(myprint(),100));
+//如果我们想使用绑定适配器,需要我们自己的函数对象继承binary_function 或者 unary_function
+//根据我们函数对象是一元函数对象 还是二元函数对象
+class MyPrint :public binary_function<int,int,void>
+{
+public:
+	void operator()(int v1,int v2) const
+	{
+		cout << "v1 = : " << v1 << " v2 = :" <<v2  << " v1+v2 = :" << (v1 + v2) << endl;	
+	}
+};
+//1、函数适配器
+void test01()
+{
+	vector<int>v;
+	for (int i = 0; i < 10; i++)
+	{
+		v.push_back(i);
+	}
+	cout << "请输入起始值：" << endl;
+	int x;
+	cin >> x;
+
+	for_each(v.begin(), v.end(), bind1st(MyPrint(), x));
+	//for_each(v.begin(), v.end(), bind2nd( MyPrint(),x ));
+}
+//总结：  bind1st和bind2nd区别?
+//bind1st ： 将参数绑定为函数对象的第一个参数
+//bind2nd ： 将参数绑定为函数对象的第二个参数
+//bind1st bind2nd将二元函数对象转为一元函数对象
+
+
+class GreaterThenFive:public unary_function<int,bool>
+{
+public:
+	bool operator ()(int v) const
+	{
+		return v > 5;
+	}
+};
+
+//2、取反适配器
+void test02()
+{
+	vector <int> v;
+	for (int i = 0; i < 10;i++)
+	{
+		v.push_back(i);
+	}
+	
+// 	vector<int>::iterator it =  find_if(v.begin(), v.end(), GreaterThenFive()); //返回第一个大于5的迭代器
+//	vector<int>::iterator it = find_if(v.begin(), v.end(),  not1(GreaterThenFive())); //返回第一个小于5迭代器
+	//自定义输入
+	vector<int>::iterator it = find_if(v.begin(), v.end(), not1 ( bind2nd(greater<int>(),5)));
+	if (it == v.end())
+	{
+		cout << "没找到" << endl;
+	}
+	else
+	{
+		cout << "找到" << *it << endl;
+	}
+
+	//排序  二元函数对象
+	sort(v.begin(), v.end(), not2(less<int>()));
+	for_each(v.begin(), v.end(), [](int val){cout << val << " "; });
+
+}
+//not1 对一元函数对象取反
+//not2 对二元函数对象取反
+
+void MyPrint03(int v,int v2)
+{
+	cout << v + v2<< " ";
+}
+
+//3、函数指针适配器   ptr_fun
+void test03()
+{
+	vector <int> v;
+	for (int i = 0; i < 10; i++)
+	{
+		v.push_back(i);
+	}
+	// ptr_fun( )把一个普通的函数指针适配成函数对象
+	for_each(v.begin(), v.end(), bind2nd( ptr_fun( MyPrint03 ), 100));
+}
+
+
+//4、成员函数适配器
+class Person
+{
+public:
+	Person(string name, int age)
+	{
+		m_Name = name;
+		m_Age = age;
+	}
+
+	//打印函数
+	void ShowPerson(){
+		cout << "成员函数:" << "Name:" << m_Name << " Age:" << m_Age << endl;
+	}
+	void Plus100()
+	{
+		m_Age += 100;
+	}
+public:
+	string m_Name;
+	int m_Age;
+};
+
+void MyPrint04(Person &p)
+{
+	cout << "姓名：" <<  p.m_Name << " 年龄：" << p.m_Age << endl;
+
+};
+
+void test04()
+{
+	vector <Person>v;
+	Person p1("aaa", 10);
+	Person p2("bbb", 20);
+	Person p3("ccc", 30);
+	Person p4("ddd", 40);
+	v.push_back(p1);
+	v.push_back(p2);
+	v.push_back(p3);
+	v.push_back(p4);
+
+	//for_each(v.begin(), v.end(), MyPrint04);
+	//利用 mem_fun_ref 将Person内部成员函数适配
+	for_each(v.begin(), v.end(), mem_fun_ref(&Person::ShowPerson));
+// 	for_each(v.begin(), v.end(), mem_fun_ref(&Person::Plus100));
+// 	for_each(v.begin(), v.end(), mem_fun_ref(&Person::ShowPerson));
+}
+
+void test05(){
+
+	vector<Person*> v1;
+	//创建数据
+	Person p1("aaa", 10);
+	Person p2("bbb", 20);
+	Person p3("ccc", 30);
+	Person p4("ddd", 40);
+
+	v1.push_back(&p1);
+	v1.push_back(&p2);
+	v1.push_back(&p3);
+	v1.push_back(&p4);
+
+	for_each(v1.begin(), v1.end(), mem_fun(&Person::ShowPerson));
+}
+
+//如果容器存放的是对象指针，  那么用mem_fun
+//如果容器中存放的是对象实体，那么用mem_fun_ref
+
+```
 
 
 
+## 算法概述
+
+算法主要是由头文件`<algorithm><functional> <numeric>`组成。
+`<algorithm>`是所有STL头文件中最大的一个,其中常用的功能涉及到比较，交换，查找,遍历，复制，修改，反转，排序，合并等…
+`<numeric>`体积很小，只包括在几个序列容器上进行的简单运算的模板函数.
+`<functional>` 定义了一些模板类,用以声明函数对象。
+
+### 常用遍历算法
+
+```cpp
+/*
+    遍历算法 遍历容器元素
+	@param beg 开始迭代器
+	@param end 结束迭代器
+	@param _callback  函数回调或者函数对象
+	@return 函数对象
+*/
+for_each(iterator beg, iterator end, _callback);
+/*
+	transform算法 将指定容器区间元素搬运到另一容器中
+	注意 : transform 不会给目标容器分配内存，所以需要我们提前分配好内存
+	@param beg1 源容器开始迭代器
+	@param end1 源容器结束迭代器
+	@param beg2 目标容器开始迭代器
+	@param _cakkback 回调函数或者函数对象
+	@return 返回目标容器迭代器
+*/
+transform(iterator beg1, iterator end1, iterator beg2, _callbakc)
+
+
+for_each:
+/*
+
+template<class _InIt,class _Fn1> inline
+void for_each(_InIt _First, _InIt _Last, _Fn1 _Func)
+{
+	for (; _First != _Last; ++_First)
+		_Func(*_First);
+}
+
+*/
+
+//普通函数
+void print01(int val){
+	cout << val << " ";
+}
+//函数对象
+struct print001{
+	void operator()(int val){
+		cout << val << " ";
+	}
+};
+
+//for_each算法基本用法
+void test01(){
+	
+	vector<int> v;
+	for (int i = 0; i < 10;i++){
+		v.push_back(i);
+	}
+
+	//遍历算法
+	for_each(v.begin(), v.end(), print01);
+	cout << endl;
+
+	for_each(v.begin(), v.end(), print001());
+	cout << endl;
+
+}
+
+struct print02{
+	print02(){
+		mCount = 0;
+	}
+	void operator()(int val){
+		cout << val << " ";
+		mCount++;
+	}
+	int mCount;
+};
+
+//for_each返回值
+void test02(){
+
+	vector<int> v;
+	for (int i = 0; i < 10; i++){
+		v.push_back(i);
+	}
+
+	print02 p = for_each(v.begin(), v.end(), print02());
+	cout << endl;
+	cout << p.mCount << endl;
+}
+
+struct print03 : public binary_function<int, int, void>{
+	void operator()(int val,int bindParam) const{
+		cout << val + bindParam << " ";
+	}
+};
+
+//for_each绑定参数输出
+void test03(){
+	
+	vector<int> v;
+	for (int i = 0; i < 10; i++){
+		v.push_back(i);
+	}
+
+	for_each(v.begin(), v.end(), bind2nd(print03(),100));
+}
+
+
+transform:
+//transform 将一个容器中的值搬运到另一个容器中
+/*
+	template<class _InIt, class _OutIt, class _Fn1> inline 
+	_OutIt _Transform(_InIt _First, _InIt _Last,_OutIt _Dest, _Fn1 _Func)
+	{	
+
+		for (; _First != _Last; ++_First, ++_Dest)
+			*_Dest = _Func(*_First);
+		return (_Dest);
+	}
+
+	template<class _InIt1,class _InIt2,class _OutIt,class _Fn2> inline
+	_OutIt _Transform(_InIt1 _First1, _InIt1 _Last1,_InIt2 _First2, _OutIt _Dest, _Fn2 _Func)
+	{	
+		for (; _First1 != _Last1; ++_First1, ++_First2, ++_Dest)
+			*_Dest = _Func(*_First1, *_First2);
+		return (_Dest);
+	}
+*/
+
+struct transformTest01{
+	int operator()(int val){
+		return val + 100;
+	}
+};
+struct print01{
+	void operator()(int val){
+		cout << val << " ";
+	}
+};
+void test01(){
+
+	vector<int> vSource;
+	for (int i = 0; i < 10;i ++){
+		vSource.push_back(i + 1);
+	}
+
+	//目标容器
+	vector<int> vTarget;
+	//给vTarget开辟空间
+	vTarget.resize(vSource.size());
+	//将vSource中的元素搬运到vTarget
+	vector<int>::iterator it = transform(vSource.begin(), vSource.end(), vTarget.begin(), transformTest01());
+	//打印
+	for_each(vTarget.begin(), vTarget.end(), print01()); cout << endl;
+	
+}
+
+//将容器1和容器2中的元素相加放入到第三个容器中
+struct transformTest02{
+	int operator()(int v1,int v2){
+		return v1 + v2;
+	}
+};
+void test02(){
+
+	vector<int> vSource1;
+	vector<int> vSource2;
+	for (int i = 0; i < 10; i++){
+		vSource1.push_back(i + 1);	
+	}
+
+	//目标容器
+	vector<int> vTarget;
+	//给vTarget开辟空间
+	vTarget.resize(vSource1.size());
+	transform(vSource1.begin(), vSource1.end(), vSource2.begin(),vTarget.begin(), transformTest02());
+	//打印
+	for_each(vTarget.begin(), vTarget.end(), print01()); cout << endl;
+}
+
+```
 
 
 
+### 常用查找算法
+
+```cpp
+/*
+	find算法 查找元素
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param value 查找的元素
+	@return 返回查找元素的位置
+*/
+find(iterator beg, iterator end, value)
+/*
+	find_if算法 条件查找
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param  callback 回调函数或者谓词(返回bool类型的函数对象)
+	@return bool 查找返回true 否则false
+*/
+find_if(iterator beg, iterator end, _callback);
+
+/*
+	adjacent_find算法 查找相邻重复元素
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param  _callback 回调函数或者谓词(返回bool类型的函数对象)
+	@return 返回相邻元素的第一个位置的迭代器
+*/
+adjacent_find(iterator beg, iterator end, _callback);
+/*
+	binary_search算法 二分查找法
+	注意: 在无序序列中不可用
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param value 查找的元素
+	@return bool 查找返回true 否则false
+*/
+bool binary_search(iterator beg, iterator end, value);
+/*
+	count算法 统计元素出现次数
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param  value回调函数或者谓词(返回bool类型的函数对象)
+	@return int返回元素个数
+*/
+count(iterator beg, iterator end, value);
+/*
+	count算法 统计元素出现次数
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param  callback 回调函数或者谓词(返回bool类型的函数对象)
+	@return int返回元素个数
+*/
+count_if(iterator beg, iterator end, _callback);
+
+```
 
 
 
+### 常用排序算法
+
+```cpp
+/*
+	merge算法 容器元素合并，并存储到另一容器中
+	@param beg1 容器1开始迭代器
+	@param end1 容器1结束迭代器
+	@param beg2 容器2开始迭代器
+	@param end2 容器2结束迭代器
+	@param dest  目标容器开始迭代器
+*/
+merge(iterator beg1, iterator end1, iterator beg2, iterator end2, iterator dest)
+/*
+	sort算法 容器元素排序
+	注意:两个容器必须是有序的
+	@param beg 容器1开始迭代器
+	@param end 容器1结束迭代器
+	@param _callback 回调函数或者谓词(返回bool类型的函数对象)
+*/
+sort(iterator beg, iterator end, _callback)
+/*
+	sort算法 对指定范围内的元素随机调整次序
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+*/
+random_shuffle(iterator beg, iterator end)
+/*
+	reverse算法 反转指定范围的元素
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+*/
+reverse(iterator beg, iterator end)
+
+```
 
 
 
+### 常用拷贝和替换算法
+
+```cpp
+/*
+	copy算法 将容器内指定范围的元素拷贝到另一容器中
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param dest 目标起始迭代器
+*/
+copy(iterator beg, iterator end, iterator dest)
+/*
+	replace算法 将容器内指定范围的旧元素修改为新元素
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param oldvalue 旧元素
+	@param oldvalue 新元素
+*/
+replace(iterator beg, iterator end, oldvalue, newvalue)
+/*
+	replace_if算法 将容器内指定范围满足条件的元素替换为新元素
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param callback函数回调或者谓词(返回Bool类型的函数对象)
+	@param oldvalue 新元素
+*/
+replace_if(iterator beg, iterator end, _callback, newvalue)
+/*
+	swap算法 互换两个容器的元素
+	@param c1容器1
+	@param c2容器2
+*/
+swap(container c1, container c2)
+
+```
+
+### 常用算数生成算法
+
+```cpp
+/*
+	accumulate算法 计算容器元素累计总和
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param value累加值
+*/
+accumulate(iterator beg, iterator end, value)
+/*
+	fill算法 向容器中添加元素
+	@param beg 容器开始迭代器
+	@param end 容器结束迭代器
+	@param value t填充元素
+*/
+fill(iterator beg, iterator end, value)
+
+```
+
+### 常用集合算法
+
+```cpp
+/*
+	set_intersection算法 求两个set集合的交集
+	注意:两个集合必须是有序序列
+	@param beg1 容器1开始迭代器
+	@param end1 容器1结束迭代器
+	@param beg2 容器2开始迭代器
+	@param end2 容器2结束迭代器
+	@param dest  目标容器开始迭代器
+	@return 目标容器的最后一个元素的迭代器地址
+*/
+set_intersection(iterator beg1, iterator end1, iterator beg2, iterator end2, iterator dest)
+/*
+	set_union算法 求两个set集合的并集
+	注意:两个集合必须是有序序列
+	@param beg1 容器1开始迭代器
+	@param end1 容器1结束迭代器
+	@param beg2 容器2开始迭代器
+	@param end2 容器2结束迭代器
+	@param dest  目标容器开始迭代器
+	@return 目标容器的最后一个元素的迭代器地址
+*/
+set_union(iterator beg1, iterator end1, iterator beg2, iterator end2, iterator dest)
+/*
+	set_difference算法 求两个set集合的差集
+	注意:两个集合必须是有序序列
+	@param beg1 容器1开始迭代器
+	@param end1 容器1结束迭代器
+	@param beg2 容器2开始迭代器
+	@param end2 容器2结束迭代器
+	@param dest  目标容器开始迭代器
+	@return 目标容器的最后一个元素的迭代器地址
+*/
+set_difference(iterator beg1, iterator end1, iterator beg2, iterator end2, iterator dest)
+
+```
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
+可能你觉得不够深入,想要深入的话, 看源码呗!
 
 
 

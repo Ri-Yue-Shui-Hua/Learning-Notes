@@ -167,13 +167,119 @@ Press ANY key to exit...
 
 
 
+## 获取时间
+
+```cpp
+#include<iostream>
+#include<ctime>
+
+using namespace std;
+
+int main()
+{
+	//基于当前系统的当前时间
+	time_t now=time(0);
+	
+	//把now转换为字符串类型
+	char *dt=ctime(&now);
+	
+	cout<<"本地日期和时间: "<<dt<<endl;
+	
+	//把now转换为tm结构
+	tm *gmtm=gmtime(&now);
+	dt=asctime(gmtm);
+	cout<<"UTC日期和时间: "<<dt<<endl;
+	return 0;
+}
+```
+
+运行输出：
+
+```bash
+本地日期和时间: Wed Aug 24 20:10:28 2022
+
+UTC日期和时间: Wed Aug 24 12:10:28 2022
+
+
+--------------------------------
+Process exited after 0.007458 seconds with return value 0
+
+Press ANY key to exit...
+```
 
 
 
+## 随机数生成
+
+C++中有专门的随机数生成器
+
+```cpp
+#include<cstdlib>
+
+int rand();
+```
+
+于是我们激动地实验了一下这个函数
+发现了一个严肃的问题：为什么每次“随机”出来的数都是一样的呢？？？
+
+这就引发我们思考另一个很重要地问题：
+
+计算机可以产生真正的随机数嘛？
+很遗憾，不行。。。
+所谓的随机数，实际上是事先存储在计算机内部的一个数表
+为了使取出来的数**可视为随机**，我们需要给计算机一个**种子**
+
+根据种子为基准以某个递推公式推算出一系列数，因为其周期长，故在一定范围内可以看成是随机数
+
+怎么设置种子
+我们需要在使用随机数生成函数之前调用一次：
+
+```cpp
+void srand(unsigned int seed);
+```
+
+通过设置seed来产生不同的随机数，只要种子不同，那么通过rand()得到的随机数序列就是不同的；反之，如果种子是一样的，那么通过rand()得到的随机数序列就是相同的
+
+那么我们**如何选择种子就显得无比重要**
+一般的，我们就选择**time(0)**
 
 
 
+```cpp
+#include <iostream>
+#include <cstdlib>
+#include <ctime>
 
+using namespace std;
+
+int main()
+{
+	const int seq_int = 41;//定义一个常量值为41
+	int random_val = 0;//用来存放随机数
+	srand((unsigned int)time(NULL));//srand中的参数就是seed，也就是随机数将会在0~(seed-1)中进行产生
+	
+	random_val = rand() % seq_int + 60;//产生0~100以内的数据
+	
+	cout << random_val << endl;
+	
+	//system("pause");
+	return 0;
+}
+
+```
+
+```bash
+77
+
+--------------------------------
+Process exited after 0.006921 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+
+
+测试，生成随机数的时间确实不快。
 
 
 

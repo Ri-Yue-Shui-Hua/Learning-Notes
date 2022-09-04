@@ -960,6 +960,566 @@ ps:关于this指针的深入解释
 
 ### cast
 
+c++强制类型转换运算符。
+
+强制类型转换运算符是一种特殊的运算符，它把一种数据类型转换成另一种数据类型。强制转换运算符是一元运算符，它的优先级与其他一元运算符相同。
+
+大多数的c++编译器都支持大部分通用的强制转换运算符。
+
+```cpp
+(type) expression
+```
+
+其中，type是转换后的数据类型。下面列出了c++支持的其他几种强制转换运算符：
+
+- **const_cast<type> (expr)** : const_cast运算符用于修改类型的const/volatile属性。除了const或colatile属性外，目标类型必须与源类型相同。这种类型转换主要是用来操作所传对象的const属性，可以加上const属性，也可以去掉const属性。
+- **dynamic_cast<type>(expr)** : dynamic_cast在运行时执行转换，验证转换的有效性。如果转换未执行，则转换失败，表达式expr倍判定为null。dynamic_cast执行动态转换是，type必须是类的指针、类的引用或者void*，如果type是类指针类型，那么expr也必须是一个指针，如果type是一个引用，那么expr也必须是一个引用。
+- **reinterpret_cast<type>(expr)** : reinterpret_cast运算符把某种指针改为其他类型的指针。它可以把一个指针转换为一个整数，也可以把一个整数转换为一个指针。
+- **static_cast<type>(expr)** : static_cast运算符执行非动态转换，没有运行时类检查来保证转换的安全性。例如，它可以把一个基类指针转换为派生类指针。
+
+
+
+[(1条消息) C++ 四种cast 详解_帅B猪的博客-CSDN博客_c++ cast](https://blog.csdn.net/m0_46210273/article/details/121147406)
+
+
+
+#### C++ 四种cast 详解
+
+
+
+##### cast出现的意义
+
+1.C++继承并扩展C语言的传统[类型转换](https://so.csdn.net/so/search?q=类型转换&spm=1001.2101.3001.7020)方式，提供了功能更加强大的转型机制（检查与风险）
+2.更好的定位转型的地方。
+
+
+
+##### reinterpret_cast
+
+reinterpret_cast是四种强制转换中功能最为强大的（最暴力，最底层，最不安全）。它的本质是[编译器](https://so.csdn.net/so/search?q=编译器&spm=1001.2101.3001.7020)的指令。
+它的作用：它可以把一个指针转换成一个整数，也可以把一个整数转换成一个指针。或者不同类型的指针的相互替换
+代码示例：
+
+```cpp
+#include <iostream> 
+int main()
+{
+	double a = 1.1;
+	char * c = reinterpret_cast<char*>(&a);
+	double* b = reinterpret_cast<double*>(c);
+	printf("%lf",*b);
+}
+
+```
+
+运行结果：
+
+![image-20220904162545884](C++Note.assets/image-20220904162545884.png)
+
+
+
+分析：我们通过中间的 char*来转double但是没有出现精度问题。事实上reinterpret_cast只是在编译器进行的予以转化，只要是个地址就可以转（二进制拷贝）。
+
+##### const_cast
+
+有两个功能，去掉const和加上const
+加上const的情况：
+代码：
+
+```cpp
+#include <iostream> 
+int main()
+{
+	int* a=new int(1);
+	const int * b = const_cast<const int * >(a);
+	*a=2;
+	//*b=2;，常量不能修改
+	printf("%d\n",*a);
+	printf("%d\n",*b);
+	std::cout << a << std::endl;
+	std::cout << b << std::endl;
+}
+
+```
+
+
+
+![image-20220904205159453](C++Note.assets/image-20220904205159453.png)
+
+分析：
+我们发现值是一样的.
+
+去掉const的情况（这里的情况非常多，深拷贝和浅拷贝各不一样，转型之后返回的可能不是原地址）：
+代码：
+
+```cpp
+#include <iostream> 
+class A
+{
+public:
+	int num;
+	A(int val = 100):num(val){}
+	~A(){}
+};
+int main()
+{
+	//1.const 修饰指针对象,指向原对象 
+	const A * pa1 = new A(200);
+	A * cast_pa1 = const_cast<A * >(pa1);
+	printf("1.const 修饰指针指向对象\n");
+	printf("%p\n",pa1); 
+	printf("%p\n",cast_pa1); 
+	
+	//2.const 修饰指向指针对象的值,指向原对象
+	A * const pa2 = new A(200);
+	A * cast_pa2 = const_cast<A * >(pa2);
+	printf("2.const 修饰指向对象的值\n");
+	printf("%p\n",pa2); 
+	printf("%p\n",cast_pa2);
+	
+	//3.const 同时修饰指针对象和指针对象的值,指向原对象
+	const A * const pa3 = new A(200);
+	A * cast_pa3_1 = const_cast<A * >(pa3);
+	const A * cast_pa3_2 = const_cast<A * >(pa3);
+	A * const cast_pa3_3 = const_cast<A * >(pa3);
+	printf("3.const 同时修饰指针对象和指针对象的值,指向原对象\n");
+	printf("%p\n",pa3); 
+	printf("%p\n",cast_pa3_1);
+	printf("%p\n",cast_pa3_2);
+	printf("%p\n",cast_pa3_3);
+	
+	//4.const 修饰普通对象，并且赋值给一般对象,不指向原对象 
+	const A pa4;
+	A cast_pa4 = const_cast<A &>(pa4);
+	printf("4.const 修饰普通对象，并且赋值给一般对象\n");
+	printf("%p\n",&pa4); 
+	printf("%p\n",&cast_pa4);
+	
+	//5.const 修饰普通对象，并且赋值给引用对象,指向原对象
+	const A pa5;
+	A& cast_pa5 = const_cast<A& >(pa5);
+	printf("5.const 修饰普通对象，并且赋值给引用对象\n");
+	printf("%p\n",&pa5); 
+	printf("%p\n",&cast_pa5);
+	
+	// 6. const 修饰对象，对象指针去 const 属性后赋给指针,指向原对象 
+	const A pa6;
+	A * cast_pa6 = const_cast<A * >(&pa6); 
+	printf("6. const 修饰对象，对象指针去 const 属性后赋给指针\n");
+	printf("%p\n",&pa6); 
+	printf("%p\n",cast_pa6);
+	
+	//7.const修饰局部变量，不指向原对象
+	const int pa7=1;
+	int  cast_pa7_1 = const_cast<int&>(pa7); 
+	int& cast_pa7_2 = const_cast<int&>(pa7);
+	int* cast_pa7_3 = const_cast<int*>(&pa7);
+	
+	printf("6. const 修饰对象，对象指针去 const 属性后赋给指针\n");
+	printf("%p\n",&pa7); 
+	printf("%p\n",&cast_pa7_1);
+	printf("%p\n",&cast_pa7_2);
+	printf("%p\n",cast_pa7_3);
+	cast_pa7_1=10;
+	printf("%d,未修改\n",pa7);
+	cast_pa7_2=100;
+	printf("%d,未修改\n",pa7);
+	*cast_pa7_3=1000;
+	printf("%d,未修改\n",pa7);
+}
+```
+
+执行结果：
+
+![image-20220904205427023](C++Note.assets/image-20220904205427023.png)
+
+
+
+分析：
+去掉对象指针的const，全是原对象
+去掉一般对象的const，如果赋值给一般对象则是新对象，否则全是原对象
+去掉局部变量的const，全是新对象
+
+##### static_cast
+
+作用：
+1.基本类型之间的转换
+2.void指针转换为任意基本类型的指针
+3.用于有继承关系的子类与父类之间的指针或引用的转换
+
+基本类型之间的转换：
+代码：
+
+```cpp
+#include <iostream> 
+int main()
+{
+	double i=1.1;
+	int a = static_cast<int>(i);
+	printf("%d\n",a); 
+	double b = static_cast<int>(a);
+	printf("%lf\n",b);
+}
+```
+
+运行结果：
+
+![image-20220904210844814](C++Note.assets/image-20220904210844814.png)
+
+
+
+分析：可以进行基本类型的转化，但是会损失精度类似与C语言的强制转化。跟reinterpret_cast不太一样reinterpret_cast是底层二进制的强制拷贝和语义转换不会损失精度。
+
+void指针和其他指针的转换;
+代码;
+
+```cpp
+#include <iostream> 
+int main()
+{
+	int *a = new int(1);
+	void *v = static_cast<void *>(a);
+	int *p = static_cast<int *>(v);
+	*a=2;
+	printf("%d\n",*a);
+	printf("%d\n",*p);
+	printf("%p\n",a); 
+	printf("%p\n",p); 
+}
+```
+
+运行结果：
+
+![image-20220904211005694](C++Note.assets/image-20220904211005694.png)
+
+
+
+分析：这里是void指针和其他类型的指针进行的转化，结果是指向的是原地址。（普通类型的转换不是）
+
+子类和父类之间的转换：
+代码：
+
+```cpp
+#include <iostream> 
+using namespace std;
+class A
+{
+	public:
+	A(){}
+	void foo()
+	{
+		cout<<"A!"<<endl;
+	}
+};
+class B:public A
+{
+	public:
+	B(){}	
+	void foo()
+	{
+		cout<<"B!"<<endl;
+	}
+}; 
+int main()
+{
+	A *a = new A();
+	B * b = static_cast<B *>(a);
+	b->foo();
+	return 0;
+}
+```
+
+运行结果：
+
+![image-20220904211228607](C++Note.assets/image-20220904211228607.png)
+
+
+
+这是向下转型，是不安全的，但是为什么没有报错呢，因为B中还没有B特有的（B的成员变量）。我们在看看别的
+代码：
+
+```cpp
+#include <iostream> 
+using namespace std;
+class A
+{
+	public:
+	A(){}
+	void foo()
+	{
+		cout<<"A!"<<endl;
+	}
+};
+class B:public A
+{
+	char b='c';
+	public:
+	B(){}	
+	void foo()
+	{
+		cout<<b<<endl;
+	}
+}; 
+int main()
+{
+	A * a = new A();
+	a->foo();
+	static_cast<B*>(a)->foo();
+	return 0;
+}
+```
+
+运行结果;
+
+![image-20220904211433590](C++Note.assets/image-20220904211433590.png)
+
+
+
+分析：这里就发生了错误了，B中特有的成员变量没有初始化（使用了不安全的向下转型）
+static_cast的类的转型类似于普通的强转，可以抛出异常
+
+##### dynamic_cast
+
+dynamic_cast用于类继承层次间的指针或引用转换(主要用于向下的安全转换)
+dynamic_cast向下转型的安全性主要体现在RTTI
+**RTTI**：
+运行时类型识别。程序能够使用基类的指针或引用来检查着这些指针或引用所指的对象的实际派生类型（判断指针原型）
+RTTI提供了两个非常有用的操作符：typeid和dynamic_cast。（三个最主要的东西，dynamic_cast,typeid,type_info）
+typeid:typeid函数（为type_info类的友元函数，为什么要这样呢？目的是防止创建type_info对象）的主要作用就是让用户知道当前的变量是什么类型的,它可以返回一个type_info的引用，可以获取类的名称和编码typeid重载了type_info中的==和!=可以用于判断两个类型是否相等
+1）typeid识别静态类型
+当typeid中的操作数是如下情况之一时，typeid运算符指出操作数的静态类型，即编译时的类型。
+（1）类型名
+（2）一个**基本类型**的变量
+（3）一个**具体**的对象(非指针对象)
+（4）一个指向 不含有virtual函数的类 对象的指针的解引用
+（5）一个指向 不含有virtual函数的类 对象的引用
+静态类型在程序的运行过程中并不会改变，所以并不需要在程序运行时计算类型，在编译时就能根据操作数的静态类型，推导出其类型信息。例如如下的代码片断，typeid中的操作数均为静态类型：
+
+代码：
+```cpp
+#include <iostream> 
+#include <typeinfo> 
+using namespace std;
+class X  {
+	public:
+		X()
+		{
+			
+		}
+		void func()
+		{
+			
+		}
+}; 
+class XX : public X  {
+	public:
+	XX()
+	{
+		
+	}
+	void func()
+	{
+			
+	}
+}; 
+class Y  {
+	public:
+	Y()
+	{
+		
+	}
+	void func()
+	{
+			
+	}
+}; 
+ 
+int main()
+{
+    int n = 0;
+    XX xx;
+    Y y;
+    Y *py = &y;
+ 
+    // int和XX都是类型名
+    cout << typeid(int).name() << endl;
+    cout << typeid(XX).name() << endl;
+    // n为基本变量
+    cout << typeid(n).name() << endl;
+    // xx所属的类虽然存在virtual，但是xx为一个具体的对象
+    cout << typeid(xx).name() << endl;
+    // py为一个指针，属于基本类型
+    cout << typeid(py).name() << endl;
+    // py指向的Y的对象，但是类Y不存在virtual函数
+    cout << typeid(*py).name() << endl;
+    return 0;
+}
+```
+
+
+
+运行输出：
+
+![image-20220904212436846](C++Note.assets/image-20220904212436846.png)
+
+
+
+2）typeid识别多态类型
+当typeid中的操作数是如下情况之一时，typeid运算符需要在程序运行时计算类型，因为其操作数的类型在编译时期是不能被确定的。
+（1）一个指向含有virtual函数的类对象的指针的解引用
+（2）一个指向含有virtual函数的类对象的引用
+
+代码：
+
+```cpp
+#include <iostream> 
+#include <typeinfo> 
+using namespace std;
+class X
+{
+    public:
+        X()
+        {
+            mX = 101;
+        }
+        virtual void vfunc()
+        {
+            cout << "X::vfunc()" << endl;
+        }
+    private:
+        int mX;
+};
+class XX : public X
+{
+    public:
+        XX():
+            X()
+        {
+            mXX = 1001;
+        }
+        virtual void vfunc()
+        {
+            cout << "XX::vfunc()" << endl;
+        }
+    private:
+        int mXX;
+};
+void printTypeInfo(const X *px)
+{
+    cout << "typeid(px) -> " << typeid(px).name() << endl;
+    cout << "typeid(*px) -> " << typeid(*px).name() << endl;
+}
+int main()
+{
+    X x;
+    XX xx;
+    printTypeInfo(&x);
+    printTypeInfo(&xx);
+    return 0;
+}
+```
+
+
+
+运行结果：
+
+![image-20220904213346528](C++Note.assets/image-20220904213346528.png)
+
+
+
+最后真实的判断出了指针原型
+那么问题来了，typeid是如何计算这个类型信息的呢？下面将重点说明这个问题。
+
+多态类型是通过在类中声明一个或多个virtual函数来区分的。因为在C++中，一个具备多态性质的类，正是内含直接声明或继承而来的virtual函数。多态类的对象的类型信息保存在虚函数表的索引的-1的项中，该项是一个type_info对象的地址，该type_info对象保存着该对象对应的类型信息，每个类（多态）都对应着一个type_info对象
+在多重继承和虚拟继承的情况下，一个类有n（n>1）个虚函数表，该类的对象也有n个vptr，分别指向这些虚函数表，但是一个类的所有的虚函数表的索引为-1的项的值（type_info对象的地址）都是相等的，即它们都指向同一个type_info对象，这样就实现了无论使用了哪一个基类的指针或引用指向其派生类的对象，都能通过相应的虚函数表获取到相同的type_info对象，从而得到相同的类型信息。
+
+##### dynamic_cast（可以抛出异常）
+
+dynamic_cast借助RTTI机制实现了安全的向下转型（无法转型的返回NULL）
+代码：
+
+```cpp
+#include <iostream> 
+#include <typeinfo> 
+using namespace std;
+class X
+{
+    public:
+        X()
+        {
+            mX = 101;
+        }
+        virtual ~X()
+        {
+        }
+    private:
+        int mX;
+};
+ 
+class XX : public X
+{
+    public:
+        XX():
+            X()
+        {
+            mXX = 1001;
+        }
+        virtual ~XX()
+        {
+        }
+    private:
+        int mXX;
+};
+ 
+class YX : public X
+{
+    public:
+        YX()
+        {
+            mYX = 1002;
+        }
+        virtual ~YX()
+        {
+        }
+    private:
+        int mYX;
+};
+int main()
+{
+    X x;
+    XX xx;
+    YX yx;
+ 
+    X *px = &xx;
+    cout << px << endl;
+ 
+    XX *pxx = dynamic_cast<XX*>(px); // 转换1
+    cout << pxx << endl;
+ 
+    YX *pyx = dynamic_cast<YX*>(px); // 转换2
+    cout << pyx << endl;
+ 
+    pyx = (YX*)px; // 转换3
+    cout << pyx << endl;
+ 
+    pyx = static_cast<YX*>(px); // 转换4
+    cout << pyx << endl;
+ 
+    return 0;
+}
+
+```
+
+运行结果：
+
+![image-20220904213629226](C++Note.assets/image-20220904213629226.png)
+
+
+
+分析：
+px是一个基类（X）的指针，但是它指向了派生类XX的一个对象。在转换1中，转换成功，因为px指向的对象确实为XX的对象。在转换2中，转换失败，因为px指向的对象并不是一个YX对象，此时dymanic_cast返回NULL。转换3为C风格的类型转换而转换4使用的是C++中的静态类型转换，它们均能成功转换，但是这个对象实际上并不是一个YX的对象，所以在转换3和转换4中，若继续通过指针使用该对象必然会导致错误，所以这个转换是不安全的。
+
+声明：引用的情况与指针稍有不同，失败时并不是返回NULL，而是抛出一个bad_cast异常，因为引用不能参考NULL。
 
 
 ### extern

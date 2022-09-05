@@ -330,6 +330,460 @@ if __name__ == "__main__":
 
 
 
+## onnx模型
+
+[[ONNX从入门到放弃\] 1. ONNX协议基础 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/456124635)
+
+ ONNX是开放式[神经网络](https://so.csdn.net/so/search?q=神经网络&spm=1001.2101.3001.7020)(Open Neural Network Exchange)的简称，主要由微软和合作伙伴社区创建和维护。
+
+###  onnx结构
+
+通过阅读github上ONNX工程中的.proto文件，很容易发现ONNX由下面几部分组成。
+
+| 类型           | 用途                                                         |
+| -------------- | ------------------------------------------------------------ |
+| ModelProto     | 定义了整个网络的模型结构                                     |
+| GraphProto     | 定义了模型的计算逻辑，包含了构成图的节点，这些节点组成了一个有向图结构 |
+| NodeProto      | 定义了每个OP的具体操作                                       |
+| ValueInfoProto | 序列化的张量，用来保存weight和bias                           |
+| TensorProto    | 定义了输入输出形状信息和张量的维度信息                       |
+| AttributeProto | 定义了OP中的具体参数，比如Conv中的stride和kernel_size等      |
+
+在工程实践中，导出一个ONNX模型就是导出一个ModelProto。ModelProto中包含GraphProto、版本号等信息。GraphProto又包含了NodeProto类型的node，ValueInfoProto类型的input和output，TensorProto类型的initializer。其中，node包含了模型中的所有OP，input和output包含了模型的输入和输出，initializer包含了所有的权重信息。 每个计算节点node中还包含了一个AttributeProto数组，用来描述该节点的属性，比如Conv节点或者卷积层的属性包含group，pad，strides等等。
+
+### 构建ONNX模型
+
+
+
+在熟悉了ONNX的模型结构之后，可以采用ONNX官方提供的API构建ONNX的网络结构，这里举一个简单的例子。
+
+```python
+# -*- coding : UTF-8 -*-
+# @file   : test_onnx.py
+# @Time   : 2022-09-03 18:24
+# @Author : wmz
+
+import onnx
+from onnx import helper
+from onnx import AttributeProto, TensorProto, GraphProto
+
+if __name__ == '__main__':
+    # 创建输入（ValueInfoProto）
+    X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [3, 2])
+    pads = helper.make_tensor_value_info('pads', TensorProto.FLOAT, [1, 4])
+    value = helper.make_tensor_value_info('value', AttributeProto.FLOAT, [1])
+
+    # 创建输出 （ValueInfoProto）
+    Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [3, 4])
+
+    # 创建节点（NodeProto）
+    node_def = helper.make_node(
+        'Pad',  # node name
+        ['X', 'pads', 'value'],  # inputs
+        ['Y'],  # outputs
+        mode='constant',  # attributes
+    )
+
+    # 创建图 （GraphProto）
+    graph_def = helper.make_graph(
+        [node_def],
+        'test_model',
+        [X, pads, value],
+        [Y],
+    )
+
+    # 创建模型(ModelProto)
+    model_def = helper.make_model(graph_def, producer_name='onnx-example')
+
+    print('The model is: \n{}'.format(model_def))
+    onnx.checker.check_model(model_def)
+    onnx.save(model_def, "./test_model.onnx")
+    print('The model is checked!')
+
+```
+
+该例从onnx.helper模块中引入了多个函数，helper模块相当于对onnx的protobuf输出做了简单的封装，用户可以直接调用helper模块中提供的接口构造ONNX模型。按照之前提到过的ONNX结构定义，先构建模型的输入与输出，再构建模型的多个节点操作，用图将节点封装，一个复杂的模型中可能包含多个子图，所以图是模型的子集，最后再定义模型本身，构建相应的参数，打印的结果如下所示：
+
+```bash
+The model is: 
+ir_version: 8
+producer_name: "onnx-example"
+graph {
+  node {
+    input: "X"
+    input: "pads"
+    input: "value"
+    output: "Y"
+    op_type: "Pad"
+    attribute {
+      name: "mode"
+      s: "constant"
+      type: STRING
+    }
+  }
+  name: "test_model"
+  input {
+    name: "X"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 3
+          }
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+  input {
+    name: "pads"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 1
+          }
+          dim {
+            dim_value: 4
+          }
+        }
+      }
+    }
+  }
+  input {
+    name: "value"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 1
+          }
+        }
+      }
+    }
+  }
+  output {
+    name: "Y"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 3
+          }
+          dim {
+            dim_value: 4
+          }
+        }
+      }
+    }
+  }
+}
+opset_import {
+  version: 15
+}
+
+The model is checked!
+
+Process finished with exit code 0
+
+```
+
+### AI模型可视化
+
+生成模型后，往往需要对导出的模型结构进行查看，这时模型可视化就显得十分重要。
+
+目前，github上已经有多款开源的AI模型可视化工具，它们都有自己的特色，如TensorBoard，Netscope等。这里介绍一个非常好用的可视化工具Netron。
+
+用Netron打开用onnx.helper导出的模型：
+
+![image-20220903185854367](DeepLearning.assets/image-20220903185854367.png)
+
+
+
+[(2条消息) ONNX构建并运行模型_亦梦云烟的博客-CSDN博客_onnx模型](https://blog.csdn.net/u010580016/article/details/119493797)
+
+### ONNX文件格式
+
+ONNX文件是基于Protobuf进行序列化。了解Protobuf协议的同学应该知道，Protobuf都会有一个*.proto的文件定义协议，ONNX的该协议定义在https://github.com/onnx/onnx/blob/master/onnx/onnx.proto3 文件中。
+
+从onnx.proto3协议中我们需要重点知道的数据结构如下：
+
+- ModelProto：模型的定义，包含版本信息，生产者和GraphProto。
+- GraphProto: 包含很多重复的NodeProto, initializer, ValueInfoProto等，这些元素共同构成一个计算图，在GraphProto中，这些元素都是以列表的方式存储，连接关系是通过Node之间的输入输出进行表达的。
+- NodeProto: onnx的计算图是一个有向无环图(DAG)，NodeProto定义算子类型，节点的输入输出，还包含属性。
+- ValueInforProto: 定义输入输出这类变量的类型。
+- TensorProto: 序列化的权重数据，包含数据的数据类型，shape等。
+- AttributeProto: 具有名字的属性，可以存储基本的数据类型(int, float, string, vector等)也可以存储onnx定义的数据结构(TENSOR, GRAPH等)。
+
+
+
+### 搭建ONNX模型
+ ONNX是用DAG来描述网络结构的，也就是一个网络(Graph)由节点(Node)和边(Tensor)组成，ONNX提供的helper类中有很多API可以用来构建一个ONNX网络模型，比如make_node, make_graph, make_tensor等，下面是一个单个Conv2d的网络构造示例：
+
+```python
+# -*- coding : UTF-8 -*-
+# @file   : onnx_p2.py
+# @Time   : 2022-09-03 19:10
+# @Author : wmz
+import onnx
+from onnx import helper
+from onnx import TensorProto
+import numpy as np
+
+if __name__ == '__main__':
+    weight = np.random.randn(36)
+    X = helper.make_tensor_value_info('X', TensorProto.FLOAT, [1, 2, 4, 4])
+    W = helper.make_tensor('W', TensorProto.FLOAT, [2, 2, 3, 3], weight)
+    B = helper.make_tensor('B', TensorProto.FLOAT, [2], [1.0, 2.0])
+    Y = helper.make_tensor_value_info('Y', TensorProto.FLOAT, [1, 2, 2, 2])
+
+    node_def = helper.make_node(
+        'Conv',  # node name
+        ['X', 'W', 'B'],
+        ['Y'],  # outputs
+        # attributes
+        strides=[2, 2],
+    )
+
+    graph_def = helper.make_graph(
+        [node_def],
+        'test_conv_mode',
+        [X],  # graph inputs
+        [Y],  # graph outputs
+        initializer=[W, B],
+    )
+
+    mode_def = helper.make_model(graph_def, producer_name='onnx-example')
+    onnx.checker.check_model(mode_def)
+    onnx.save(mode_def, "./Conv.onnx")
+
+```
+
+
+
+搭建的这个Conv[算子](https://so.csdn.net/so/search?q=算子&spm=1001.2101.3001.7020)模型使用netron可视化如下图所示：
+
+![image-20220903191300852](DeepLearning.assets/image-20220903191300852.png)
+
+
+
+这个示例演示了如何使用helper的make_tensor_value_info, make_mode, make_graph, make_model等方法来搭建一个onnx模型。
+
+        相比于PyTorch或其它框架，这些API看起来仍然显得比较繁琐，一般我们也不会用ONNX来搭建一个大型的网络模型，而是通过其它框架转换得到一个ONNX模型。
+
+
+### Shape Inference
+
+很多时候我们从pytorch, [tensorflow](https://so.csdn.net/so/search?q=tensorflow&spm=1001.2101.3001.7020)或其他框架转换过来的onnx模型中间节点并没有shape信息，如下图所示：
+
+![image-20220903191654776](DeepLearning.assets/image-20220903191654776.png)
+
+
+
+ 我们经常希望能直接看到网络中某些node的shape信息，shape_inference模块可以推导出所有node的shape信息，这样可视化模型时将会更友好：
+
+
+
+```python
+import onnx
+from onnx import shape_inference
+ 
+onnx_model = onnx.load("./test_data/mobilenetv2-1.0.onnx")
+onnx_model = shape_inference.infer_shapes(onnx_model)
+onnx.save(onnx_model, "./test_data/mobilenetv2-1.0_shaped.onnx")
+```
+
+可视化经过shape_inference之后的模型如下图：
+
+![image-20220903191757681](DeepLearning.assets/image-20220903191757681.png)
+
+
+
+
+
+### ONNX Optimizer
+
+ONNX的optimizer模块提供部分图优化的功能，例如最常用的：fuse_bn_into_conv，fuse_pad_into_conv等等。
+
+​    查看onnx支持的优化方法：
+
+```python
+from onnx import optimizer
+all_passes = optimizer.get_available_passes()
+print("Available optimization passes:")
+for p in all_passes:
+    print(p)
+print()
+```
+
+
+
+[(2条消息) 模型部署入门教程（五）：ONNX 模型的修改与调试_OpenMMLab的博客-CSDN博客_onnx模型](https://blog.csdn.net/qq_39967751/article/details/124989296)
+
+
+
+## onnx模型加密
+
+
+
+[(2条消息) onnxruntime(c++)模型加密与解密部署_小小菜鸡升级ing的博客-CSDN博客_onnx模型加密](https://blog.csdn.net/weixin_39853245/article/details/117953268)
+
+
+
+```cpp
+//加密模型
+#ifdef WINVER
+void encryptDecrypt(const wchar_t* toEncrypt, int strLength, const wchar_t* key, wchar_t* output)
+{
+        int keyLength = wcslen(key);
+        for (int i = 0; i < strLength; i++)
+        {
+                output[i] = toEncrypt[i] ^ key[i % keyLength];
+        }
+}
+#else
+void encryptDecrypt(const char* toEncrypt, int strLength, const char* key, wchar_t* output)
+{
+        int keyLength = strlen(key);
+        for (int i = 0; i < strLength; i++)
+        {
+                output[i] = toEncrypt[i] ^ key[i % keyLength];
+        }
+}
+#endif
+
+
+
+int main()
+{
+        bool bRet = true;
+        std::string model_path = "11.onnx";
+        FILE *pModel1File = fopen(model_path.c_str(), "rb");
+        if (NULL == pModel1File)
+        {
+                bRet = false;
+
+        }
+        int length = 0;
+        fseek(pModel1File, 0, SEEK_END);
+        length = ftell(pModel1File);
+        fseek(pModel1File, 0, SEEK_SET);
+        ORTCHAR_T* model1rbuffer = nullptr;
+        model1rbuffer = new ORTCHAR_T[length];
+        if (nullptr == model1rbuffer) {
+                bRet = false;
+        }
+
+        fread((ORTCHAR_T *)model1rbuffer, 1, length, pModel1File);
+        fclose(pModel1File);
+
+        //写入加密模型
+        FILE *pOutFile = fopen("1.data", "wb");
+        if (NULL == pOutFile)
+        {
+                return -1;
+        }
+        #ifdef WINVER
+        const wchar_t* key = L"1234";
+        const wchar_t* encrypted = new wchar_t[length];
+        #else
+        const char* key = "1234";
+        const char* encrypted = new char[length];
+        #endif
+        encryptDecrypt(model1rbuffer, length, key, encrypted);
+        fwrite(encrypted, 1,  length, pOutFile);
+        fclose(pOutFile);
+        delete[] encrypted;
+        delete[] model1rbuffer;
+        system("pause");
+        return 0;
+}
+
+
+// 解密模型加载
+int main() 
+{
+        bool bRet = true;
+        std::string model_path = "1.data";
+        FILE *pModel1File = fopen(model_path.c_str(), "rb");
+        if (NULL == pModel1File)
+        {
+                bRet = false;
+        }
+        int length = 0;
+        fseek(pModel1File, 0, SEEK_END);
+        length = ftell(pModel1File);
+        fseek(pModel1File, 0, SEEK_SET);
+        ORTCHAR_T* model1rbuffer = nullptr;
+        model1rbuffer = new ORTCHAR_T[length];
+        if (nullptr == model1rbuffer) {
+                bRet = false;
+        }
+
+        fread((ORTCHAR_T *)model1rbuffer, 1, length, pModel1File);
+        fclose(pModel1File);
+        #ifdef WINVER
+        	const wchar_t* key = L"1234";
+        	const wchar_t* encrypted = new wchar_t[length];
+        #else
+        	const char* key = "1234";
+        	const char* encrypted = new char[length];
+        #endif
+        
+        encryptDecrypt(model1rbuffer, length, key, decrypted);
+
+        const OrtApi* g_ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+        OrtEnv* env_;
+        g_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "cyril", &env_);
+        OrtSessionOptions* session_options_= nullptr;
+        OrtSession* session_= nullptr;
+        g_ort->CreateSessionOptions(&session_options_);
+        g_ort->SetIntraOpNumThreads(session_options_, 1);
+        g_ort->SetSessionGraphOptimizationLevel(session_options_, ORT_ENABLE_ALL);
+        //g_ort->CreateSession(env_, model1rbuffer, session_options_, &session_);
+        g_ort->CreateSessionFromArray(env_, decrypted, length, session_options_, &session_);
+        std::cout << "ok!" << std::endl;
+        delete[] model1rbuffer;
+        delete[] decrypted;
+        system("pause");
+        return 0;
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

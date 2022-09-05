@@ -1524,7 +1524,167 @@ px是一个基类（X）的指针，但是它指向了派生类XX的一个对象
 
 ### extern
 
+[extern (C++) | Microsoft Docs](https://docs.microsoft.com/zh-cn/cpp/cpp/extern-cpp?view=msvc-170)
 
+#### extern——关键字
+
+extern是C语言中的一个关键字，一般用在变量名前或函数名前，作用是用来说明“**此变量/函数是在别处定义的，要在此处引用**”，extern这个关键字大部分读者应该是在变量的存储类型这一类的内容中
+
+遇到的，下面先分析C语言不同的存储类型
+
+
+
+在C语言中变量和函数有**数据类型**和**存储类型**两个属性，因此变量定义的一般形式为：存储类型 数据类型 变量名表；
+
+C语言提供了一下几种不同的存储类型：
+
+（1） 自动变量（auto）
+
+（2） 静态变量（static）
+
+（3） 外部变量（extern）
+
+（4） 寄存器变量（register）
+
+（上面的auto、static、extern、register都是C语言的关键字），这里只分析extern关键字的使用
+
+外部变量（全局变量）extern----全局静态存储区
+
+标准定义格式：**extern 类型名 变量名；**
+
+
+
+1、函数的声明extern关键词是可有可无的，因为函数本身不加修饰的话就是extern。但是引用的时候一样需要声明的。
+
+2、全局变量在外部使用声明时，extern关键字是必须的，如果变量没有extern修饰且没有显式的初始化，同样成为变量的定义，因此此时必须加extern，而编译器在此标记存储空间在执行时加载内并初始化为0。而局部变量的声明不能有extern的修饰，且局部变量在运行时才在堆栈部分分配内存。
+
+3、全局变量或函数本质上讲没有区别，函数名是指向函数二进制块开头处的指针。而全局变量是在函数外部声明的变量。函数名也在函数外，因此函数也是全局的。
+
+4、谨记：声明可以多次，定义只能一次。
+
+5、extern int i; //声明，不是定义
+int i; //声明，也是定义
+
+##### 示例
+
+
+
+```cpp
+#include <stdio.h>
+
+extern int count;
+
+void write_extern(void)
+{
+	printf("count is %d\n", count);
+}
+```
+
+
+
+
+
+```cpp
+#include <stdio.h>
+
+int count ;
+extern void write_extern();
+
+int main()
+{
+	count = 5;
+    write_extern();
+}
+```
+
+
+
+#### extern"C" 作用
+
+[C/C++中extern关键字详解 - 简书 (jianshu.com)](https://www.jianshu.com/p/111dcd1c0201)
+
+C++语言在编译的时候为了解决函数的多态问题，会将函数名和参数联合起来生成一个中间的函数名称，而C语言则不会，因此会造成链接时无法找到对应函数的情况，此时C函数就需要用extern “C”进行链接指定，这告诉编译器，请保持我的名称，不要给我生成用于链接的中间函数名。
+
+比如说你用C 开发了一个DLL 库，为了能够让C ++语言也能够调用你的DLL 输出(Export) 的函数，你需要用extern "C" 来强制编译器不要修改你的函数名。
+
+通常，在C 语言的头文件中经常可以看到类似下面这种形式的代码：
+
+```cpp
+#ifdef __cplusplus  
+extern "C" {  
+#endif  
+  
+/**** some declaration or so *****/  
+  
+#ifdef __cplusplus  
+}  
+#endif
+```
+
+
+
+1. 现在要写一个c语言的模块，供以后使用（以后的项目可能是c的也可能是c++的），源文件事先编译好，编译成.so或.o都无所谓。头文件中声明函数时要用条件编译包含起来，如下：
+
+```cpp
+#ifdef __cpluscplus  
+extern "C" {  
+#endif  
+  
+//some code  
+  
+#ifdef __cplusplus  
+}  
+#endif  
+```
+
+也就是把所有函数声明放在some code的位置。
+
+2. 如果这个模块已经存在了，可能是公司里的前辈写的，反正就是已经存在了，模块的.h文件中没有extern "C"关键字，这个模块又不希望被改动的情况下，可以这样，在你的c++文件中，包含该模块的头文件时加上extern "C", 如下：
+
+
+
+```cpp
+extern "C" {  
+#include "test_extern_c.h"  
+} 
+```
+
+3. 上面例子中，如果仅仅使用模块中的1个函数，而不需要include整个模块时，可以不include头文件，而单独声明该函数，像这样:
+
+```cpp
+
+extern "C"{  
+int ThisIsTest(int, int);            
+} 
+```
+
+
+
+**注意:** 当单独声明函数时候， 就不能要头文件，或者在头文件中不能写extern intThisIsTest(int a, int b);否则会有error C2732: 链接规范与“ThisIsTest”的早期规范冲突，这个错误。
+
+####  声明和定义知识点
+
+1. 定义也是声明，extern声明不是定义，即不分配存储空间。extern告诉编译器变量在其他地方定义了。
+    eg：extern int  i; //声明，不是定义
+    int i; //声明，也是定义
+2. 如果声明有初始化式，就被当作定义，即使前面加了extern。只有当extern声明位于函数外部时，才可以被初始化。
+    eg：extern double pi=3.1416; //定义
+3. 函数的声明和定义区别比较简单，带有{}的就是定义，否则就是声明。
+    eg：extern double max(double d1,double d2); //声明
+    double max(double d1,double d2){} //定义
+4. 除非有extern关键字，否则都是变量的定义。
+    eg：extern inti; //声明
+    inti; //定义
+
+注:  basic_stdy.h中有char
+ glob_str[];而basic_stdy.cpp有char
+ glob_str;此时头文件中就不是定义，默认为extern
+ **程序设计风格：**
+
+1. 不要把变量定义放入.h文件，这样容易导致重复定义错误。
+2. 尽量使用static关键字把变量定义限制于该源文件作用域，除非变量被设计成全局的。
+    也就是说
+3. 可以在头文件中声明一个变量，在用的时候包含这个头文件就声明了这个变量。
 
 
 

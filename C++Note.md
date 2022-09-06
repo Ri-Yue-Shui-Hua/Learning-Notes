@@ -1524,6 +1524,8 @@ px是一个基类（X）的指针，但是它指向了派生类XX的一个对象
 
 ### extern
 
+[C++extern详解 - 骚猪mark - 博客园 (cnblogs.com)](https://www.cnblogs.com/markzhuqian/p/14461696.html)
+
 
 
 

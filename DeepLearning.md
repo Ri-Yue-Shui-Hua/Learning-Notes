@@ -167,7 +167,7 @@ def export_onnx(model, input, input_names, output_names, modelname):
 
 ##  根据网络结构图反向工程网络
 
-![test.onnx](C:/Users/Administrator/Downloads/test.onnx.svg)
+![test.onnx](DeepLearning.assets/test.onnx.svg)
 
 
 
@@ -323,6 +323,10 @@ if __name__ == "__main__":
 ```
 
 
+
+## 神经网络数据加载
+
+[torch.utils.data — PyTorch 1.12 documentation](https://pytorch.org/docs/stable/data.html?highlight=dataset#torch.utils.data.Dataset)
 
 
 

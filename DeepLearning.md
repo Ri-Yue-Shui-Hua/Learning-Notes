@@ -766,10 +766,23 @@ int main()
 
 
 
+# DL 各种机制和模块
 
 
 
+## SCE模块
 
+[CV中的attention机制之（cSE，sSE，scSE）_just-solo的博客-CSDN博客_scse注意力](https://blog.csdn.net/justsolow/article/details/106517945)
+
+
+
+[最简单最易实现的SE模块（Squeeze-and-Excitation Networks）_just-solo的博客-CSDN博客_神经网络se模块](https://blog.csdn.net/justsolow/article/details/105376899)
+
+
+
+Squeeze-and-Excitation Networks
+
+SENet是Squeeze-and-Excitation Networks的简称，拿到了ImageNet2017分类比赛冠军，其效果得到了认可，其提出的SE模块思想简单，易于实现，并且很容易可以加载到现有的网络模型框架中。SENet主要是学习了channel之间的相关性，筛选出了针对通道的注意力，稍微增加了一点计算量，但是效果比较好。
 
 
 

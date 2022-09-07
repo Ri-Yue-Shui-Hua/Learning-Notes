@@ -1119,11 +1119,224 @@ for epoch in range(epochs):
 
 
 
+# pytorch基础知识
+
+
+
+## torchvision
+
+
+
+torchvision是pytorch的一个图形库，它服务于PyTorch深度学习框架的。其构成如下：
+
+torchvision.datasets: 一些加载数据的函数及常用的数据集接口；
+torchvision.models: 包含常用的模型结构（含预训练模型），例如AlexNet、VGG、ResNet等；
+torchvision.transforms: 常用的图片变换，例如裁剪、旋转等；
+torchvision.utils: 其他的一些有用的方法。
 
 
 
 
+## 训练技巧
 
+[PyTorch学习记录——PyTorch进阶训练技巧_maximejia的博客-CSDN博客_pytorch 训练](https://blog.csdn.net/maximejia/article/details/125902794?spm=1001.2101.3001.6650.17&utm_medium=distribute.pc_relevant.none-task-blog-2~default~BlogCommendFromBaidu~Rate-17-125902794-blog-123258204.pc_relevant_aa&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2~default~BlogCommendFromBaidu~Rate-17-125902794-blog-123258204.pc_relevant_aa&utm_relevant_index=17)
+
+
+
+### 自定义损失函数
+
+
+
+自定义损失函数的方法主要包括两种，即以函数的方式定义和以类的方式定义。
+
+#### 以函数的方式定义损失函数
+
+以函数的方式定义与定义python函数没有什么区别，通过将参与损失计算的张量（即Tensor）作为函数的形参进行定义，例如
+
+```python
+def my_loss(output: torch.Tensor, target: torch.Tensor):
+    loss = torch.mean((output - target) ** 2)
+    return loss
+```
+
+在上述定义中，我们使用了MSELoss损失函数。同时可以看到，在损失函数编写过程中，可以直接使用我们熟悉的Python中的运算符，包括加减乘除等等，但牵涉到矩阵运算，如矩阵乘法则需要使用Pytorch提供的张量计算接口`torch.matmul`。采用这样的方式定义损失函数实际上就仅需要把计算过程定义清楚即可，或者说是把计算图或数据流定义清楚。
+
+#### 以类的方式定义损失函数
+
+以类的方式定义损失函数需要让我们定义的类继承`nn.Module`类。采用这样的方式定义损失函数类，可以让我们把定义的损失函数作为一个神经网络层来对待。Pytorch现有的损失函数也大都采用这种类的方式进行定义的。事实上，在Pytorch中，`Loss`函数部分继承自`_loss`, 部分继承自`_WeightedLoss`, 而`_WeightedLoss`继承自`_loss`，` _loss`继承自 `nn.Module`。例如，通过查看Pytorch中`CrossEntropyLoss`的代码，我们可以看到上述关系，如下。
+
+
+```python
+class CrossEntropyLoss(_WeightedLoss):
+        ...
+
+class _WeightedLoss(_Loss):
+    ...
+
+class _Loss(Module):
+    ...
+
+```
+
+#### 比较与思考
+
+
+
+教程中有说到，相比于以函数的方式定义的损失函数，类的方式定义更为常用。
+
+> 虽然以函数定义的方式很简单，但是以类方式定义更加常用，…
+
+然而，从教程中给出的例子，比如`DiceLoss`损失函数的定义
+
+```python
+class DiceLoss(nn.Module):
+    def __init__(self,weight=None,size_average=True):
+        super(DiceLoss,self).__init__()
+
+    def forward(self,inputs,targets,smooth=1):
+        inputs = F.sigmoid(inputs)       
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+        intersection = (inputs * targets).sum()                   
+        dice = (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
+        return 1 - dice
+
+```
+
+确实又难以体现出其相比函数方法的优越之处。考虑到类这种面向对象的设计方式，上述采用类的方式设计损失函数可能存在如下两个方面的优势：
+
+- 当损失函数计算过程中出现一些类似滑动平均等需要动态缓存一些数的时候，采用类的方式可以直接将这样的数存放在实体对象中；
+- 采用类的方式可以通过继承的方式梳理清楚不同损失函数的关系，并有可能能复用一些父类损失函数的特性和方法。
+  
+
+### 动态调整学习率
+
+无论是在深度学习任务中还是深度强化学习任务中，学习率对于神经网络的训练非常重要。因为本质上讲，两者都是通过数据驱动的手段，通过梯度下降类算法，对神经网络的参数进行寻优。对于一个任务，在起始时，我们可能设定了一个比较好的学习率。这使得我们的算法在训练初期收敛的效率和效果都较好。但随着训练的进行，特别是当网络参数非常靠近我们期待的位置时（神经网络参数空间中的理想点），我们初期设置的学习率可能就会显得偏大，导致梯度下降过程步长过长，从而使得神经网络参数在理想点附近震荡。
+
+为解决上述问题，一种方式是通过手动调整学习率，来适应神经网络训练不同的时期，以及神经网络所达到的不同性能。但这样的方式就要求我们要能够自行设计出一套学习率变化的算法，这无疑为我们程序训练的编写又增加了复杂度。另一种方式下，我们可以使用Pytorch中的scheduler进行动态的学习率调整。
+
+Pytorch的scheduler可以提供两种使用方式的支持：官方提供的scheduler API和自定义的scheduler。
+
+#### 官方提供的scheduler API
+
+官方提供的scheduler API主要放在`torch.optim.lr_scheduler`中，具体包括
+
+
+
+| scheduler API                                                | 说明                                                         | 参数                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `lr_scheduler.LambdaLR`                                      | 学习率`lr`为一个初始值乘以一个函数，当last_epoch=-1时，`lr`取值为初始值 | * optimizer (Optimizer) – Wrapped optimizer.<br/>* lr_lambda (function or list) – A function which computes a multiplicative factor given an integer parameter epoch, or a list of such functions, one for each group in optimizer.param_groups.<br/> |
+| \* last_epoch (int) – The index of last epoch. Default: -1.  |                                                              |                                                              |
+| \* verbose (bool) – If True, prints a message to stdout for each update. Default: False. |                                                              |                                                              |
+| `lr_scheduler.MultiplicativeLR`                              | 学习率`lr`为一个初始值乘以一个函数，当last_epoch=-1时，`lr`取值为初始值 | * optimizer (Optimizer) – Wrapped optimizer.                 |
+| * lr_lambda (function or list) – A function which computes a multiplicative factor given an integer parameter epoch, or a list of such functions, one for each group in optimizer.param_groups.<br/> |                                                              |                                                              |
+| \* last_epoch (int) – The index of last epoch. Default: -1.  |                                                              |                                                              |
+| \* verbose (bool) – If True, prints a message to stdout for each update. Default: False. |                                                              |                                                              |
+| `lr_scheduler.StepLR`                                        | 每step_size个epoch，学习率`lr`变为其当前值乘以`gamma`，当last_epoch=-1时，`lr`取值为初始值 | * optimizer (Optimizer) – Wrapped optimizer.                 |
+| \* step_size (int) – Period of learning rate decay.          |                                                              |                                                              |
+| \* gamma (float) – Multiplicative factor of learning rate decay. Default: 0.1. |                                                              |                                                              |
+| \* last_epoch (int) – The index of last epoch. Default: -1.  |                                                              |                                                              |
+| \* verbose (bool) – If True, prints a message to stdout for each update. Default: False. |                                                              |                                                              |
+| `lr_scheduler.MultiStepLR`                                   | 当epoch数达到milestones数量时，学习率`lr`变为其当前值乘以`gamma`，当last_epoch=-1时，`lr`取值为初始值 | * optimizer (Optimizer) – Wrapped optimizer.                 |
+| * milestones (list) – List of epoch indices. Must be increasing. |                                                              |                                                              |
+| * gamma (float) – Multiplicative factor of learning rate decay. / * Default: 0.1. |                                                              |                                                              |
+| * last_epoch (int) – The index of last epoch. Default: -1.   |                                                              |                                                              |
+| * verbose (bool) – If True, prints a message to stdout for each update. Default: False. |                                                              |                                                              |
+| `lr_scheduler.ExponentialLR`                                 | 每个epoch，学习率`lr`变为其当前值乘以`gamma`，当last_epoch=-1时，`lr`取值为初始值 | * optimizer (Optimizer) – Wrapped optimizer.                 |
+| * gamma (float) – Multiplicative factor of learning rate decay. |                                                              |                                                              |
+| * last_epoch (int) – The index of last epoch. Default: -1.   |                                                              |                                                              |
+| * verbose (bool) – If True, prints a message to stdout for each update. Default: False. |                                                              |                                                              |
+| `lr_scheduler.CosineAnnealingLR`                             | 采用cos衰减的方式调整学习率，当last_epoch=-1时，`lr`取值为初始值 | * optimizer (Optimizer) – Wrapped optimizer.                 |
+| * T_max (int) – Maximum number of iterations.                |                                                              |                                                              |
+| * eta_min (float) – Minimum learning rate. Default: 0.       |                                                              |                                                              |
+| * last_epoch (int) – The index of last epoch. Default: -1.   |                                                              |                                                              |
+| * verbose (bool) – If True, prints a message to stdout for each update. Default: False. |                                                              |                                                              |
+| `lr_scheduler.ReduceLROnPlateau`                             | 当某项指标不再下降时削减学习率                               | * ptimizer (Optimizer) – Wrapped optimizer.                  |
+| * mode (str) – One of min, max. In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. Default: ‘min’. |                                                              |                                                              |
+| * factor (float) – Factor by which the learning rate will be reduced. new_lr = lr * factor. Default: 0.1. |                                                              |                                                              |
+| * patience (int) – Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the 3rd epoch if the loss still hasn’t improved then. Default: 10. |                                                              |                                                              |
+| * threshold (float) – Threshold for measuring the new optimum, to only focus on significant changes. Default: 1e-4. |                                                              |                                                              |
+| * threshold_mode (str) – One of rel, abs. In rel mode, dynamic_threshold = best * ( 1 + threshold ) in ‘max’ mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. Default: ‘rel’. |                                                              |                                                              |
+| * cooldown (int) – Number of epochs to wait before resuming normal operation after lr has been reduced. Default: 0. |                                                              |                                                              |
+| min_lr (float or list) – A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. Default: 0. |                                                              |                                                              |
+| * eps (float) – Minimal decay applied to lr. If the difference between new and old lr is smaller than eps, the update is ignored. Default: 1e-8. |                                                              |                                                              |
+| * verbose (bool) – If True, prints a message to stdout for each update. Default: False. |                                                              |                                                              |
+| `lr_scheduler.CyclicLR`                                      | 以某种循环策略调整学习率                                     | 详见https://pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.CyclicLR.html#torch.optim.lr_scheduler.CyclicLR |
+| `lr_scheduler.OneCycleLR`                                    | 以某种单次循环策略调整学习率                                 | 详见https://pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.OneCycleLR.html#torch.optim.lr_scheduler.OneCycleLR |
+| `lr_scheduler.CosineAnnealingWarmRestarts`                   | 采用cos衰减的方式调整学习率，当last_epoch=-1时，`lr`取值为初始值 |                                                              |
+
+
+
+在训练中，上述scheduler API通过实例化创建scheduler实例，再通过**在optimizer优化一步（即调用step()方法）后**，调用step()方法进行学习率调整，如下：
+
+```python
+# 选择优化器
+optimizer = torch.optim.Adam(...) 
+# 选择一种或多种动态调整学习率方法
+scheduler = torch.optim.lr_scheduler.... 
+
+# 进行训练
+for epoch in range(100):
+    train(...)
+    validate(...)
+    optimizer.step()
+    # 在优化器参数更新之后再动态调整学习率
+    scheduler.step() 
+    ...
+
+```
+
+
+
+#### 自定义scheduler
+
+自定义scheduler的方法是通过构建自定义函数adjust_learning_rate，来改变optimizer的param_group中lr的值实现的，例如：
+
+```python
+def adjust_learning_rate(optimizer, epoch):
+    lr = args.lr * (0.1 ** (epoch // 30))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+```
+
+基于此定义的scheduler，我们便可以在训练时进行使用，如下：
+
+```python
+# 选择优化器
+optimizer = torch.optim.Adam(...) 
+# 进行训练
+for epoch in range(100):
+    train(...)
+    validate(...)
+    optimizer.step()
+    # 调用自定义函数调整学习率
+    adjust_learning_rate(optimizer, epoch)
+    ...
+```
+
+#### 问题
+
+在使用自定义学习率调整函数时，自定义学习率调整函数是否也要放在`optimizer.step()`语句之后？
+
+
+
+### 模型微调
+
+当前，模型参数的规模持续膨胀，能够达到的能力水平，甚至跨任务的泛化水平也在不断提高，但这些模型往往均是通过在大数据集上训练的。因此，当前在很多深度学习任务求解上的做法是基于一个在很大的数据集上训练的模型进行进一步调整实现的。这其实就是模型微调——基于预训练模型在当前任务上进行进一步训练。也正是基于这样的思想，近年来预训练大模型开始成为热点。从BERT到GPT-3，到大模型的出现一方面促进了AI模型泛化能力的提升，另一方面也削减了下游任务（具体任务）的训练成本，催生了“大模型预训练+微调”的应用研发范式。
+
+Pytorch提供了许多预训练好的网络模型（VGG，ResNet系列，mobilenet系列…），这些模型都是PyTorch官方在相应的大型数据集训练好的。在面对具体下游任务时，我们可以从中选择与我们任务接近的模型，换成我们的数据进行精调，也就是我们经常见到的finetune。
+
+#### 模型微调流程
+
+模型精调分为如下几步：
+
+1. 在源数据集上预训练一个神经网络模型，即源模型。这一步实际上预训练模型制作方为我们准备好了，即我们在Pytorch中拿到的就已经是预训练好的模型了。
+2. 创建新的神经网络模型，即目标模型。将源模型中除了最终的输出层外所有部分的模型和相应的参数复制到目标模型中。这一步是通过模型结构和参数的拷贝，将源模型（预训练模型）预训练中的经验赋予目标模型。但由于目标模型与源模型面对的任务不同，因此，目标模型中最后的输出层保留独立。我认为，这里不仅限于输出层，扩充一些。只要是针对当前任务特有的层都可以保留相对于源模型的独立性。
+3. 为目标模型添加一个与目标模型任务想匹配的输出层，并随机初始化该层的模型参数。
+4. 在目标数据集上训练目标模型。对于输出层（即目标模型特有的部分），我们将从头训练，而其余层的参数都是基于源模型的参数微调得到的。
+   
+
+![image-20220908074048462](DeepLearning.assets/image-20220908074048462.png)
 
 
 

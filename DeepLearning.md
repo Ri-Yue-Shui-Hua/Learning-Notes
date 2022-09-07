@@ -1034,6 +1034,87 @@ out shape: torch.Size([10, 3, 64, 64])
 
 
 
+# 深度学习训练网络通用架构
+
+## pytorch
+
+
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.utils.data import TensorDataset
+from torch.utils.data import DataLoader
+
+# 定义网络结构
+class Model(nn.Module):
+	def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1)
+
+    def forward(self, xb):
+        xb = xb.view(-1, 1, 28, 28)
+        xb = F.relu(self.conv1(xb))
+        xb = F.relu(self.conv2(xb))
+        xb = F.relu(self.conv3(xb))
+        xb = F.avg_pool2d(xb, 4)
+        return xb.view(-1, xb.size(1))
+
+# 网络实例化
+model = Model()
+# loss
+loss_func = F.cross_entropy
+# 优化器设置
+opt = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+
+train_ds = TensorDataset(x_train, y_train)
+train_dl = DataLoader(train_ds, batch_size=bs, shuffle=True)
+valid_ds = TensorDataset(x_valid, y_valid)
+valid_dl = DataLoader(valid_ds, batch_size=bs, shuffle=False)
+
+for epoch in range(epochs):
+	# 设置为训练模式
+    model.train()
+    # iterate: 每次一个batch
+    for xb, yb in train_dl:
+    	# 前向传播
+        pred = model(xb)
+        # 计算损失
+        loss = loss_func(pred, yb)
+		# 反向传播，计算loss关于各权重参数的偏导，更新grad
+        loss.backward()
+        # 优化器基于梯度下降原则，更新（学习）权重参数parameters
+        opt.step()
+        # 各权重参数的偏导清零 grad=>0
+        opt.zero_grad()
+	# 设置为评估（推理）模式，设置BN、dropout等模块
+    model.eval()
+    # 不更新梯度
+    with torch.no_grad():
+        valid_loss = sum(loss_func(model(xb), yb) for xb, yb in valid_dl)
+
+    print(epoch, valid_loss / len(valid_dl))
+
+```
+
+
+
+
+
+## tensorflow
+
+
+
+
+
+## paddle
+
+
+
 
 
 

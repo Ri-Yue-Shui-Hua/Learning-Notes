@@ -1342,6 +1342,48 @@ Pytorch提供了许多预训练好的网络模型（VGG，ResNet系列，mobilen
 
 
 
+# 目标检测
+
+
+
+[[PyTorch 学习笔记\] 8.2 目标检测简介 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/259494709)
+
+在构造 DataLoader 时，还要传入一个`collate_fn()`函数。这是因为在目标检测中，图片的宽高可能不一样，无法以 4D 张量的形式拼接一个 batch 的图片，因此这里使用 tuple 来拼接数据。
+
+
+
+```python
+# 收集batch data的函数
+    def collate_fn(batch):
+        return tuple(zip(*batch))
+```
+
+collate_fn 的输入是 list，每个元素是 tuple；每个 tuple 是 Dataset 中的 `__getitem__()`返回的数据，包括`(image, target)`
+
+举个例子：
+
+```python
+image=[1,2,3]
+target=[4,5,6]
+batch=list(zip(image,target))
+print("batch:")
+print(batch)
+collate_result = tuple(zip(*batch))
+print("collate_result:")
+print(collate_result)
+```
+
+输出为：
+
+```python
+batch:
+[(1, 4), (2, 5), (3, 6)]
+collate_result:
+((1, 2, 3), (4, 5, 6))
+```
+
+
+
 
 
 # python 基础

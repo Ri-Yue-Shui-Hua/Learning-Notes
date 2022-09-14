@@ -1008,11 +1008,51 @@ out shape: torch.Size([10, 3, 64, 64])
 
 ## 3D SCE模块
 
- 
+ 主要是对上面的2D的算子换成3D的算子。
+
+```python
+class sSE(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.conv1x1 = nn.Conv3d(in_channels, 1, 1, bias=False)
+        self.norm = nn.Sigmoid()
+
+    def forward(self, U):
+        q = self.conv1x1(U)
+        q = self.norm(q)
+        return U * q  # 广播机制
 
 
+class cSE(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool3d(1)
+        self.conv_squeeze = nn.Conv3d(
+            in_channels, in_channels//2, 1, bias=False)
+        self.conv_excitation = nn.Conv3d(
+            in_channels//2, in_channels, 1, bias=False)
+        self.norm = nn.Sigmoid()
+
+    def forward(self, U):
+        z = self.pool(U)
+        z = self.conv_squeeze(z)
+        z = self.conv_excitation(z)
+        z = self.norm(z)
+        return U * z.expand_as(U)
 
 
+class scSE(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.sSE = sSE(in_channels)
+        self.cSE = cSE(in_channels)
+
+    def forward(self, U):
+        U_sSE = self.sSE(U)
+        U_cSE = self.cSE(U)
+        return U_sSE + U_cSE
+
+```
 
 
 
@@ -1027,6 +1067,10 @@ out shape: torch.Size([10, 3, 64, 64])
 
 
 ## SCN模块
+
+
+
+[1908.00748.pdf (arxiv.org)](https://arxiv.org/pdf/1908.00748.pdf)
 
 
 

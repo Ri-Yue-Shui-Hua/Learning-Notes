@@ -1076,6 +1076,38 @@ class scSE(nn.Module):
 
 
 
+## pytorch中图像的分块（patch）操作
+
+
+
+[(1条消息) pytorch中图像的分块（patch）操作（使用了.permute()维度转换）_cdy艳0917的博客-CSDN博客_patch pytorch](https://blog.csdn.net/sinat_42239797/article/details/104666149)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # 深度学习训练网络通用架构

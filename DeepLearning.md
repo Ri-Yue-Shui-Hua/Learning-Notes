@@ -1060,6 +1060,248 @@ class scSE(nn.Module):
 
 ## DSNT模块
 
+论文地址：[Numerical Coordinate Regression with Convolutional Neural Networks](https://arxiv.org/abs/1801.07372)
+代码地址：https://github.com/anibali/dsntnn
+
+比起主流的预测heatmap再使用argmax获得最大响应点的方法，作者提出用soft-argmax方法，直接从featuremap计算得到近似的最大响应点，从而模型可以直接对坐标值进行回归预测。
+
+该方法的好处是：
+
+- 可以极大节约显存，减少了很多代码量（省去了高斯热图的生成）;
+- 计算速度很快（省去argmax）;
+- 训练过程全部可微分;
+- 能取得还不错的效果;
+
+但是从近年的新论文实验对比，基于坐标回归的方法，先天缺少空间和上下文信息，这限制了方法的性能上限
+
+- DSNT这种regression-based method对移动端非常友好，在移动设备上为了提高fps往往特征图会压到14x14甚至7x7，这个尺度下heatmap根本用不了;
+- 另一个好处是可以比较方便地混合使用2d和3d训练数据，由于每一轴上的坐标都是通过将特征图求和压缩到一维再求期望得到的，因此可以很容易地用2d数据监督3d特征图（2d只比3d少算一次回归）
+
+[DSNT与SCN](https://blog.csdn.net/juluwangriyue/article/details/122890209)
+
+### 论文总结
+
+本文提供了一种从图像中直接学习到坐标的一种思路。现在主流的方法都是基于高斯核处理的heatmap作为监督，但这种方法学习到的heatmap，在后处理得到坐标的过程中，存在量化误差（比如4倍下采样的heatmap，量化误差的期望是2）。
+
+本文提出一种新的处理方法，称为DSNT，通过DSNT处理（没添加额外参数），直接对坐标进行监督。DSNT是对heatmap进行处理的，思路如下图所示。最后的处理过程，就是将heatmap通过softmax，得到一个基于heatmap的概率分布，再通过这个概率分布，与预设好的X，Y（坐标轴）进行点乘，得到坐标的期望值。监督损失也是建立在这个期望值上的。
+
+
+
+![image-20220917224742424](DeepLearning.assets/image-20220917224742424.png)
+
+
+
+与其他方法比较：
+
+![image-20220917224822768](DeepLearning.assets/image-20220917224822768.png)
+
+
+
+
+
+![image-20220917225110228](DeepLearning.assets/image-20220917225110228.png)
+
+虽然文中的思想，主要说的是直接对坐标进行的回归，但实际上应用时，还是对heatmap做了约束的，而且权重还不算小。换个角度想，其实本文的实际操作，也可以认为，是对heatmap做了监督，然后添加了一个坐标的正则化因子。该正则化项的监督，可以有效减少heatmap转化成坐标的量化损失，与一些直接对heatmap做回归造成的损失误差与预期不符的问题。但是，这个heatmap项的损失也是精心挑选的，甚至不添加heatmap损失项，比不少heatmap损失计算方法的结果更好一些。
+
+但是，对于那些在图像中不存在的关键点（比如半身），以及多人之类的问题，DSNT都不能直接进行解决。对于某些场景的应用，这是不可避免的问题。
+
+个人见解：之所以DSNT能直接得到坐标，又能同时具有空间泛化能力，是在于两点：（1）其对heatmap进行了监督，监督对象为高斯分布，具有对称性；（2）其对坐标轴对象X,Y进行了精心设计，分别是1 ∗ n和n ∗ 1的单方向性，使其在两个坐标轴具有对称性。
+
+![image-20220917225653488](DeepLearning.assets/image-20220917225653488.png)
+
+
+
+上面是论文的片段，其中 $X \in [\frac{-(n-1)}{n}, \frac{n-1}{n}] \in (-1,1)$与 $Y \in [\frac{-(m-1)}{m}, \frac{m-1}{m}] \in (-1,1)$
+官方实现：
+
+```python
+import torch
+def normalized_linspace(length, dtype=None, device=None):
+    """Generate a vector with values ranging from -1 to 1.
+    Note that the values correspond to the "centre" of each cell, so
+    -1 and 1 are always conceptually outside the bounds of the vector.
+    For example, if length = 4, the following vector is generated:
+    ```text
+     [ -0.75, -0.25,  0.25,  0.75 ]
+     ^              ^             ^
+    -1              0             1
+    ```
+    Args:
+        length: The length of the vector
+    Returns:
+        The generated vector
+    """
+    if isinstance(length, torch.Tensor):
+        length = length.to(device, dtype)
+    first = -(length - 1.0) / length
+    return torch.arange(length, dtype=dtype, device=device) * (2.0 / length) + first
+```
+
+官方实现没有包含边界值，下面的实现包含了边界值，有没有包含边界值的区别是，结果中会不会出现边界
+对于二维的情况：
+
+```python
+ B, C, Y, X = h.shape
+ x = torch.linspace(-1, 1, X)
+ y = torch.linspace(-1, 1, Y)
+```
+对于三维的情况：
+
+```python
+B, C, Z, Y, X = h.shape
+ x = torch.linspace(-1, 1, X)
+ y = torch.linspace(-1, 1, Y)
+ z = torch.linspace(-1, 1, Z)
+```
+
+
+
+![image-20220917230414881](DeepLearning.assets/image-20220917230414881.png)
+
+
+
+![image-20220917230443944](DeepLearning.assets/image-20220917230443944.png)
+
+![image-20220917230511983](DeepLearning.assets/image-20220917230511983.png)
+
+
+
+将 $\hat{Z}_{i,j}$ 理解成概率密度函数，$X$和$Y$就是变量取值范围，我们的目标就是求期望，也就是目标位置。
+
+如果是连续变量，求$X$方向的期望就是对$X$方向求积分，如果是离散变量，就是概率密度与离散变量的乘积和。
+对于期望值，也就是目标值，对于二维坐标分别用$E_x,E_y$表示，对于三位坐标分别用$E_x,E_y,E_z$表示。
+二维计算：
+
+```python
+Ex = (Z_hat * x).sum(dim=(2, 3)).sum(dim=-1)
+Ey = (Z_hat * y).sum(dim=(2, 4)).sum(dim=-1)
+```
+
+三维计算：
+```python
+Ex = (Z_hat * x).sum(dim=(2, 3)).sum(dim=-1)
+Ey = (Z_hat * y).sum(dim=(2, 4)).sum(dim=-1)
+Ez = (Z_hat * z).sum(dim=(3, 4)).sum(dim=-1)
+```
+
+
+
+### DSNT 代码
+
+
+
+使用说明：[dsntnn/examples/basic_usage.md](https://github.com/anibali/dsntnn/blob/master/examples/basic_usage.md)
+
+下面通过一个坐标点回归任务来学习dsnt的使用
+
+下面首先创建一个简单的FCN模型，
+
+```python
+import torch 
+torch.manual_seed(12345)
+from torch import nn
+import dsntnn
+class FCN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(16),
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(16),
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+        )
+    def forward(self, x):
+        return self.layers(x)
+```
+
+DSNT层可以很方便的扩展到任何的FCN网络后面，来处理坐标点回归任务，下面就是一个例子
+
+```python
+class CoordRegressionNetwork(nn.Module):
+    def __init__(self, n_locations):
+        super().__init__()
+        self.fcn = FCN()
+        self.hm_conv = nn.Conv2d(16, n_locations, kernel_size=1, bias=False)
+ 
+    def forward(self, images):
+        # 1. Run the images through our FCN
+        fcn_out = self.fcn(images)
+        # 2. Use a 1x1 conv to get one unnormalized heatmap per location
+        unnormalized_heatmaps = self.hm_conv(fcn_out)
+        # 3. Normalize the heatmaps
+        heatmaps = dsntnn.flat_softmax(unnormalized_heatmaps)
+        # 4. Calculate the coordinates
+        coords = dsntnn.dsnt(heatmaps)
+ 
+        return coords, heatmaps
+```
+训练模型
+
+为了训练模型下面创建了一个小浣熊单只眼睛的图像
+
+```python
+from torch import optim
+import matplotlib.pyplot as plt
+import scipy
+import scipy.misc as sm
+from skimage.transform import resize
+ 
+image_size = [40, 40]
+image = scipy.misc.face()[200:400, 600:800, :]
+raccoon_face = resize(image, image_size)  # (40, 40, 3)
+eye_x, eye_y = 24, 26
+ 
+plt.imshow(raccoon_face)
+plt.scatter([eye_x], [eye_y], color='red', marker='X')
+plt.show()
+```
+
+![image-20220917231231241](DeepLearning.assets/image-20220917231231241.png)
+
+
+
+由于DSNT输出的坐标范围是(-1, 1)，所以需要将target的坐标也归一化到这个范围
+
+```python
+import torch
+raccoon_face_tensor = torch.from_numpy(raccoon_face).permute(2, 0, 1).float()  # torch.Size([3, 40, 40])
+input_tensor = raccoon_face_tensor.div(255).unsqueeze(0)  # torch.Size([1, 3, 40, 40])
+input_var = input_tensor.cuda()
+ 
+eye_coords_tensor = torch.Tensor([[[eye_x, eye_y]]])  # shape = [1, 1, 2],value=[[[24., 26.]]]
+target_tensor = (eye_coords_tensor * 2 + 1) / torch.Tensor(image_size) - 1  # shape = [1, 1, 2],value=[[[0.2250, 0.3250]]]
+target_var = target_tensor.cuda()
+ 
+print('Target: {:0.4f}, {:0.4f}'.format(*list(target_tensor.squeeze())))
+```
+运行输出：
+
+```bash
+Target: 0.2250, 0.3250
+```
+现在我们训练模型，让模型在小浣熊的眼睛点出过拟合，全部的代码如下
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1071,6 +1313,368 @@ class scSE(nn.Module):
 
 
 [1908.00748.pdf (arxiv.org)](https://arxiv.org/pdf/1908.00748.pdf)
+
+论文图片
+
+![image-20220917093008844](DeepLearning.assets/image-20220917093008844.png)
+
+
+
+![image-20220917102836972](DeepLearning.assets/image-20220917102836972.png)
+
+该方法的优点：
+
+不需要大量的标注数据就可以训练较好的定位模型。
+
+### SpatialConfiguration-Net
+
+The fundamental concept of the SpatialConfiguration-Net (SCN) is the interaction between its two components (see Fig. 1). The first component takes the image as input to generate locally accurate but potentially ambiguous local appearance heatmaps $h_{i}^{LA}(\pmb{x})$. Motivated by handcrafted graphical models for eliminating these potential ambiguities, the second component takes the predicted candidate heatmaps $h_{i}^{LA}(\pmb{x})$ as input to generate inaccurate
+but unambiguous spatial configuration heatmaps $h_{i}^{SC}(\pmb{x})$.
+
+For $N$ landmarks, the set of predicted heatmaps $\mathbb{H} = \{h_{i}(\pmb{x}) | i = 1 \cdots N\}$ is obtained by element-wise multiplication $\odot$ of the corresponding heatmap outputs $h_{i}^{LA}(\pmb{x})$ and  $h_{i}^{SC}(\pmb{x})$ of the two components:
+$$
+h_{i}(\pmb{x}) = h_{i}^{LA}(\pmb{x}) \odot h_{i}^{SC}(\pmb{x}) \tag{1}
+$$
+
+
+
+This multiplication is crucial for the SCN, as it forces both of its components to generate a response on the location of the target landmark $\pmb{x}^*_{i}$, i.e., both  $h_{i}^{LA}(\pmb{x})$ and  $h_{i}^{SC}(\pmb{x})$deliver responses for x close to $\pmb{x}^*_{i}$ , while on all other locations one component may have a response as long as the other one does not have one.  
+
+通过这篇论文 《Integrating Spatial Configuration into Heatmap Regression Based CNNs for Landmark Localization》只可以知道输出结果由2部分组成，分别是 local appearance heatmaps 和spatial configuration heatmaps。输出结果为二者的逐点乘积。
+
+```python
+heatmap = HLA * HSC
+```
+
+关于HLA和HSC的计算没有明确说明。其中HLA和HSC共用一个基础的Unet，不同之处在于HLA生成
+
+参考 [MedicalDataAugmentationTool-VerSe/network.py at master · christianpayer/MedicalDataAugmentationTool-VerSe (github.com)](https://github.com/christianpayer/MedicalDataAugmentationTool-VerSe/blob/master/verse2019/network.py)
+
+《Coarse to Fine Vertebrae Localization and Segmentation with SpatialConfiguration-Net and U-Net》
+
+参考实现（论文作者的tensorflow实现）：
+
+```python
+    scnet_local = actual_network(num_filters_base=num_filters_base,
+                                 num_levels=4,
+                                 double_filters_per_level=False,
+                                 normalization=None,
+                                 activation=activation,
+                                 data_format=data_format,
+                                 padding=padding)
+    unet_out = scnet_local(node, is_training)
+    local_heatmaps = conv3d(unet_out,
+                            filters=num_labels,
+                            kernel_size=[3, 3, 3],
+                            name='local_heatmaps',
+                            kernel_initializer=heatmap_layer_kernel_initializer,
+                            activation=None,
+                            data_format=data_format,
+                            is_training=is_training)
+    downsampled = avg_pool3d(local_heatmaps, [downsampling_factor] * 3, name='local_downsampled', data_format=data_format)
+    conv = conv3d(downsampled, filters=num_filters_base, kernel_size=[7, 7, 7], name='sconv0', activation=activation, data_format=data_format, is_training=is_training, padding=padding)
+    conv = conv3d(conv, filters=num_filters_base, kernel_size=[7, 7, 7], name='sconv1', activation=activation, data_format=data_format, is_training=is_training, padding=padding)
+    conv = conv3d(conv, filters=num_filters_base, kernel_size=[7, 7, 7], name='sconv2', activation=activation, data_format=data_format, is_training=is_training, padding=padding)
+    conv = conv3d(conv, filters=num_labels, kernel_size=[7, 7, 7], name='spatial_downsampled', kernel_initializer=heatmap_layer_kernel_initializer, activation=tf.nn.tanh, data_format=data_format, is_training=is_training, padding=padding)
+    if data_format == 'channels_last':
+        # suppose that 'channels_last' means CPU
+        # resize_trilinear is much faster on CPU
+        spatial_heatmaps = resize_tricubic(conv, factors=[downsampling_factor] * 3, name='spatial_heatmaps', data_format=data_format)
+    else:
+        # suppose that 'channels_first' means GPU
+        # upsample3d_linear is much faster on GPU
+        spatial_heatmaps = upsample3d_cubic(conv, factors=[downsampling_factor] * 3, name='spatial_heatmaps', data_format=data_format, padding='valid_cropped')
+
+    heatmaps = local_heatmaps * spatial_heatmaps
+
+    return heatmaps, local_heatmaps, spatial_heatmaps
+```
+
+
+
+[MedicalDataAugmentationTool-HeatmapRegression/network.py at master · christianpayer/MedicalDataAugmentationTool-HeatmapRegression (github.com)](https://github.com/christianpayer/MedicalDataAugmentationTool-HeatmapRegression/blob/master/spine/network.py)
+
+该项目中也有关于SCN的实现
+
+```python
+
+
+import tensorflow as tf
+from tensorflow_train.layers.layers import conv3d, avg_pool3d, dropout, add
+from tensorflow_train.layers.interpolation import upsample3d_linear, upsample3d_cubic
+from tensorflow_train.networks.unet_base import UnetBase
+from tensorflow_train.networks.unet import UnetClassic3D
+
+
+class SCNetLocal(UnetBase):
+    def downsample(self, node, current_level, is_training):
+        return avg_pool3d(node, [2, 2, 2], name='downsample' + str(current_level), data_format=self.data_format)
+
+    def upsample(self, node, current_level, is_training):
+        return upsample3d_linear(node, [2, 2, 2], name='upsample' + str(current_level), data_format=self.data_format)
+
+    def conv(self, node, current_level, postfix, is_training):
+        return conv3d(node,
+                      self.num_filters(current_level),
+                      [3, 3, 3],
+                      name='conv' + postfix,
+                      activation=self.activation,
+                      normalization=self.normalization,
+                      is_training=is_training,
+                      data_format=self.data_format,
+                      padding=self.padding)
+
+    def combine(self, parallel_node, upsample_node, current_level, is_training):
+        return add([parallel_node, upsample_node], name='add' + str(current_level))
+
+    def contracting_block(self, node, current_level, is_training):
+        node = self.conv(node, current_level, '_0', is_training)
+        node = dropout(node, 0.5, 'drop' + str(current_level), is_training)
+        node = self.conv(node, current_level, '_1', is_training)
+        return node
+
+    def parallel_block(self, node, current_level, is_training):
+        node = self.conv(node, current_level, '', is_training)
+        return node
+
+    def expanding_block(self, node, current_level, is_training):
+        return node
+
+
+def network_scn(input, num_heatmaps, is_training, data_format='channels_first'):
+    num_filters_base = 64
+    activation = lambda x, name: tf.nn.leaky_relu(x, name=name, alpha=0.1)
+    padding = 'reflect'
+    heatmap_layer_kernel_initializer = tf.truncated_normal_initializer(stddev=0.001)
+    downsampling_factor = 8
+    node = conv3d(input,
+                  filters=num_filters_base,
+                  kernel_size=[3, 3, 3],
+                  name='conv0',
+                  activation=activation,
+                  data_format=data_format,
+                  is_training=is_training)
+    scnet_local = SCNetLocal(num_filters_base=num_filters_base,
+                             num_levels=4,
+                             double_filters_per_level=False,
+                             normalization=None,
+                             activation=activation,
+                             data_format=data_format,
+                                      padding=padding)
+    unet_out = scnet_local(node, is_training)
+    local_heatmaps = conv3d(unet_out,
+                            filters=num_heatmaps,
+                            kernel_size=[3, 3, 3],
+                            name='local_heatmaps',
+                            kernel_initializer=heatmap_layer_kernel_initializer,
+                            activation=None,
+                            data_format=data_format,
+                            is_training=is_training)
+    downsampled = avg_pool3d(local_heatmaps, [downsampling_factor] * 3, name='local_downsampled', data_format=data_format)
+    conv = conv3d(downsampled, filters=num_filters_base, kernel_size=[7, 7, 7], name='sconv0', activation=activation, data_format=data_format, is_training=is_training, padding=padding)
+    conv = conv3d(conv, filters=num_filters_base, kernel_size=[7, 7, 7], name='sconv1', activation=activation, data_format=data_format, is_training=is_training, padding=padding)
+    conv = conv3d(conv, filters=num_filters_base, kernel_size=[7, 7, 7], name='sconv2', activation=activation, data_format=data_format, is_training=is_training, padding=padding)
+    conv = conv3d(conv, filters=num_heatmaps, kernel_size=[7, 7, 7], name='spatial_downsampled', kernel_initializer=heatmap_layer_kernel_initializer, activation=tf.nn.tanh, data_format=data_format, is_training=is_training, padding=padding)
+    spatial_heatmaps = upsample3d_cubic(conv, [downsampling_factor] * 3, name='spatial_heatmaps', data_format=data_format, padding='valid_cropped')
+
+    heatmaps = local_heatmaps * spatial_heatmaps
+
+    return heatmaps, local_heatmaps, spatial_heatmaps
+
+
+def network_unet(input, num_heatmaps, is_training, data_format='channels_first'):
+    num_filters_base = 64
+    activation = tf.nn.relu
+    node = conv3d(input,
+                  filters=num_filters_base,
+                  kernel_size=[3, 3, 3],
+                  name='conv0',
+                  activation=activation,
+                  data_format=data_format,
+                  is_training=is_training)
+    scnet_local = UnetClassic3D(num_filters_base=num_filters_base,
+                             num_levels=5,
+                             double_filters_per_level=False,
+                             normalization=None,
+                             activation=activation,
+                             data_format=data_format)
+    unet_out = scnet_local(node, is_training)
+    heatmaps = conv3d(unet_out,
+                            filters=num_heatmaps,
+                            kernel_size=[3, 3, 3],
+                            name='heatmaps',
+                            kernel_initializer=tf.truncated_normal_initializer(stddev=0.0001),
+                            activation=None,
+                            data_format=data_format,
+                            is_training=is_training)
+
+    return heatmaps, heatmaps, heatmaps
+```
+
+其他实现
+
+```python
+import torch
+import torch.nn as nn
+from typing import Sequence
+
+
+ACT = {'relu': nn.ReLU, 'leaky': nn.LeakyReLU, 'prelu': nn.PReLU, 'tanh': nn.Tanh, 'sigmoid': nn.Sigmoid}
+
+
+class SCN(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        num_classes: int,
+        filters: int = 64,
+        factor: int = 8,
+        dropout: float = 0.,
+        mode: str = 'add',
+        local_act: str = None,
+        spatial_act: str = 'tanh',
+    ):
+        super().__init__()
+        self.HLA = LocalAppearance(in_channels, num_classes, filters, dropout, mode)
+        self.down = nn.AvgPool3d(factor, factor, ceil_mode=True)
+        self.up = nn.Upsample(scale_factor=factor, mode='trilinear', align_corners=True)
+        self.local_act = ACT[local_act]() if local_act else None
+        self.HSC = nn.Sequential(
+            nn.Conv3d(filters, filters, 7, 1, 3, bias=False),
+            nn.Conv3d(filters, filters, 7, 1, 3, bias=False),
+            nn.Conv3d(filters, filters, 7, 1, 3, bias=False),
+            nn.Conv3d(filters, num_classes, 7, 1, 3, bias=False),
+        )
+        self.spatial_act = ACT[spatial_act]()
+        nn.init.trunc_normal_(self.HSC[-1].weight, 0, 1e-4)
+
+    def forward(self, x: torch.Tensor) -> Sequence[torch.Tensor]:
+        d1, HLA = self.HLA(x)
+        if self.local_act:
+            HLA = self.local_act(HLA)
+        HSC = self.up(self.spatial_act(self.HSC(self.down(d1))))
+        heatmap = HLA * HSC
+        return heatmap, HLA, HSC
+
+
+class LocalAppearance(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        num_classes: int,
+        filters: int = 64,
+        dropout: float = 0.,
+        mode: str = 'add',
+    ):
+        super().__init__()
+        self.mode = mode
+        self.pool = nn.AvgPool3d(2, 2, ceil_mode=True)
+        self.up = nn.Upsample(
+            scale_factor=2, mode='trilinear', align_corners=True)
+        self.in_conv = self.Block(in_channels, filters)
+        self.enc1 = self.Block(filters, filters, dropout)
+        self.enc2 = self.Block(filters, filters, dropout)
+        self.enc3 = self.Block(filters, filters, dropout)
+        self.enc4 = self.Block(filters, filters, dropout)
+        if mode == 'add':
+            self.dec3 = self.Block(filters, filters, dropout)
+            self.dec2 = self.Block(filters, filters, dropout)
+            self.dec1 = self.Block(filters, filters, dropout)
+        else:
+            self.dec3 = self.Block(2*filters, filters, dropout)
+            self.dec2 = self.Block(2*filters, filters, dropout)
+            self.dec1 = self.Block(2*filters, filters, dropout)
+        self.out_conv = nn.Conv3d(filters, num_classes, 1, bias=False)
+        nn.init.trunc_normal_(self.out_conv.weight, 0, 1e-4)
+
+    def Block(self, in_channels, out_channels, dropout=0):
+        return nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, 3, 1, 1, bias=False),
+            nn.Dropout3d(dropout, True),
+            nn.BatchNorm3d(out_channels),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv3d(out_channels, out_channels, 3, 1, 1, bias=False),
+            nn.Dropout3d(dropout, True),
+            nn.BatchNorm3d(out_channels),
+            nn.LeakyReLU(inplace=True),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x0 = self.in_conv(x)
+        e1 = self.enc1(x0)
+        e2 = self.enc2(self.pool(e1))
+        e3 = self.enc3(self.pool(e2))
+        e4 = self.enc4(self.pool(e3))
+        if self.mode == 'add':
+            d3 = self.dec3(self.up(e4)+e3)
+            d2 = self.dec2(self.up(d3)+e2)
+            d1 = self.dec1(self.up(d2)+e1)
+        else:
+            d3 = self.dec3(torch.cat([self.up(e4), e3], dim=1))
+            d2 = self.dec2(torch.cat([self.up(d3), e2], dim=1))
+            d1 = self.dec1(torch.cat([self.up(d2), e1], dim=1))
+
+        out = self.out_conv(d1)
+        return d1, out
+
+
+class UNet(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        num_classes: int,
+        filters: int = 64,
+    ) -> None:
+        super().__init__()
+        self.in_conv = self.Block(in_channels, filters)
+        self.enc1 = self.Block(filters, filters)
+        self.enc2 = self.Block(filters, filters)
+        self.enc3 = self.Block(filters, filters)
+        self.enc4 = self.Block(filters, filters)
+        self.enc5 = self.Block(filters, filters)
+        self.dec4 = self.Block(2*filters, filters)
+        self.dec3 = self.Block(2*filters, filters)
+        self.dec2 = self.Block(2*filters, filters)
+        self.dec1 = self.Block(2*filters, filters)
+        self.out_conv = nn.Conv3d(filters, num_classes, 1, bias=False)
+        self.pool = nn.AvgPool3d(2, 2, ceil_mode=True)
+        self.up = nn.Upsample(
+            scale_factor=2, mode='trilinear', align_corners=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x0 = self.in_conv(x)
+        e1 = self.enc1(x0)
+        e2 = self.enc2(self.pool(e1))
+        e3 = self.enc3(self.pool(e2))
+        e4 = self.enc4(self.pool(e3))
+        e5 = self.enc5(self.pool(e4))
+
+        d4 = self.dec4(torch.cat([self.up(e5), e4], dim=1))
+        d3 = self.dec3(torch.cat([self.up(d4), e3], dim=1))
+        d2 = self.dec2(torch.cat([self.up(d3), e2], dim=1))
+        d1 = self.dec1(torch.cat([self.up(d2), e1], dim=1))
+
+        out = self.out_conv(d1)
+        return torch.sigmoid(out)
+
+    def Block(self, in_channels, out_channels, dropout=0):
+        return nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, 3, 1, 1, bias=False),
+            nn.Dropout3d(dropout, True),
+            nn.BatchNorm3d(out_channels),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv3d(out_channels, out_channels, 3, 1, 1, bias=False),
+            nn.Dropout3d(dropout, True),
+            nn.BatchNorm3d(out_channels),
+            nn.LeakyReLU(inplace=True),
+        )
+```
+
+
+
+
+
+
 
 
 

@@ -1125,7 +1125,7 @@ def normalized_linspace(length, dtype=None, device=None):
      [ -0.75, -0.25,  0.25,  0.75 ]
      ^              ^             ^
     -1              0             1
-    ```
+```
     Args:
         length: The length of the vector
     Returns:
@@ -1284,21 +1284,130 @@ Target: 0.2250, 0.3250
 ```
 现在我们训练模型，让模型在小浣熊的眼睛点出过拟合，全部的代码如下
 
+```python
+import scipy
+import scipy.misc as sm
+from skimage.transform import resize
+import matplotlib.pyplot as plt
+import torch
+torch.manual_seed(12345)
+from torch import nn
+import dsntnn
+import torch.optim as optim
+class FCN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(16),
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(16),
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+        )
+    def forward(self, x):
+        return self.layers(x)
+class CoordRegressionNetwork(nn.Module):
+    def __init__(self, n_locations):
+        super().__init__()
+        self.fcn = FCN()
+        self.hm_conv = nn.Conv2d(16, n_locations, kernel_size=1, bias=False)
+    def forward(self, images):
+        # 1. Run the images through our FCN
+        fcn_out = self.fcn(images)
+        # 2. Use a 1x1 conv to get one unnormalized heatmap per location
+        unnormalized_heatmaps = self.hm_conv(fcn_out)
+        # 3. Normalize the heatmaps
+        heatmaps = dsntnn.flat_softmax(unnormalized_heatmaps)
+        # 4. Calculate the coordinates
+        coords = dsntnn.dsnt(heatmaps)
+        return coords, heatmaps
+image_size = [40, 40]
+# raccoon_face = sm.imresize(scipy.misc.face()[200:400, 600:800, :], image_size)      # (40, 40, 3)
+image = scipy.misc.face()[200:400, 600:800, :]
+raccoon_face = resize(image, image_size)
+eye_x, eye_y = 24, 26
+plt.imshow(raccoon_face)
+plt.scatter([eye_x], [eye_y], color='red', marker='X')
+plt.show()
+raccoon_face_tensor = torch.from_numpy(raccoon_face).permute(2, 0, 1).float()   # torch.Size([3, 40, 40])
+input_tensor = raccoon_face_tensor.div(255).unsqueeze(0)    # torch.Size([1, 3, 40, 40])
+input_var = input_tensor.cuda()
+eye_coords_tensor = torch.Tensor([[[eye_x, eye_y]]])    # # shape = [1, 1, 2],value=[[[24., 26.]]]
+target_tensor = (eye_coords_tensor * 2 + 1) / torch.Tensor(image_size) - 1  # shape = [1, 1, 2],value=[[[0.2250, 0.3250]]]
+target_var = target_tensor.cuda()
+print('Target: {:0.4f}, {:0.4f}'.format(*list(target_tensor.squeeze())))
+model = CoordRegressionNetwork(n_locations=1).cuda()    # n_locations=keypoint num=1
+# coords, heatmaps = model(input_var)
+# print('Initial prediction: {:0.4f}, {:0.4f}'.format(*list(coords[0, 0])))
+# plt.imshow(heatmaps[0, 0].detach().cpu().numpy())
+# plt.show()
+optimizer = optim.RMSprop(model.parameters(), lr=2.5e-4)
+for i in range(400):
+    # Forward pass
+    coords, heatmaps = model(input_var)
+    # coords:shape=[1, 1, 2], value=[[[0.0323, 0.0566]]]; heatmaps:shape=[1, 1, 40, 40]
+    # Per-location euclidean losses
+    euc_losses = dsntnn.euclidean_losses(coords, target_var)
+    # Per-location regularization losses
+    reg_losses = dsntnn.js_reg_losses(heatmaps, target_var, sigma_t=1.0)
+    # Combine losses into an overall loss
+    loss = dsntnn.average_loss(euc_losses + reg_losses)
+    # Calculate gradients
+    optimizer.zero_grad()
+    loss.backward()
+    # Update model parameters with RMSprop
+    optimizer.step()
+# Predictions after training
+print('Predicted coords: {:0.4f}, {:0.4f}'.format(*list(coords[0, 0])))
+plt.imshow(heatmaps[0, 0].detach().cpu().numpy())
+plt.show()
+```
+
+
+
+运行输出：
+
+![image-20220918100148843](DeepLearning.assets/image-20220918100148843.png)
+
+
+
+Target: 0.2250, 0.3250 
+
+Predicted coords: 0.2236, 0.3299
+
+![image-20220918100218157](DeepLearning.assets/image-20220918100218157.png)
 
 
 
 
 
+### DSNT的其他实现
 
 
 
+```python
+def DSNT_f(h, spacial=None):
+    B, C, Z, Y, X = h.shape
+    #heatmap = heatmap * 20
+    #h = heatmap / torch.sum(heatmap, dim=(2, 3, 4), keepdim=True)
+    x = torch.linspace(-1, 1, X).to(h.device)
+    y = torch.linspace(-1, 1, Y).to(h.device)
+    z = torch.linspace(-1, 1, Z).to(h.device)
+    x_cord = x.view([B, 1, 1, 1, X])
+    y_cord = y.view([B, 1, 1, Y, 1])
+    z_cord = z.view([B, 1, Z, 1, 1])
+    px = (h * x_cord).sum(dim=(2, 3)).sum(dim=-1)
+    py = (h * y_cord).sum(dim=(2, 4)).sum(dim=-1)
+    pz = (h * z_cord).sum(dim=(3, 4)).sum(dim=-1)
 
-
-
-
-
-
-
+    #print(x_cord.shape, px.shape, px.view(B, C, 1, 1, 1).shape)
+    var_x = (h * ((x_cord - px.view(B, C, 1, 1, 1)) ** 2)).sum(dim=(2, 3, 4))
+    var_y = (h * (y_cord - py.view(B, C, 1, 1, 1)) ** 2).sum(dim=(2, 3, 4))
+    var_z = (h * (z_cord - pz.view(B, C, 1, 1, 1)) ** 2).sum(dim=(2, 3, 4))
+    return px, py, pz, var_x, var_y, var_z
+```
 
 
 
@@ -1511,7 +1620,9 @@ def network_unet(input, num_heatmaps, is_training, data_format='channels_first')
     return heatmaps, heatmaps, heatmaps
 ```
 
-其他实现
+### SCN其他实现1
+
+
 
 ```python
 import torch
@@ -1672,7 +1783,218 @@ class UNet(nn.Module):
 
 
 
+### SCN其他实现2
 
+
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+
+
+class UNet(nn.Module):
+    def __init__(self, channels, classes):
+        super().__init__()
+        self.conv = DoubleConv(channels, 16, 32)
+        self.down1 = Down(32, 32, 64)
+        self.down2 = Down(64, 64, 128)
+        self.down3 = Down(128, 128, 256)
+
+        self.up1 = Up(384, 128, 128)
+        self.up2 = Up(192, 64, 64)
+        self.up3 = Up(96, 32, 32)
+        self.out = OutConv(32, classes)
+        self.spacial = Spacial_Info_Tanh(32, classes)
+        #self.spacial = Spacial_Info(32, classes).cuda(0)
+        #self.norm = nn.ReLU(inplace=True)
+
+        #self.edge = EdgeOut(32, 26).cuda(1)
+
+    def forward(self, x):
+        x0 = self.conv(x)
+        x1 = self.down1(x0)
+        x2 = self.down2(x1)
+        x3 = self.down3(x2)
+
+        x = self.up1(x3,x2)
+        x = self.up2(x,x1)
+        x = self.up3(x,x0)
+        #edge = self.edge(x)
+
+        local = self.out(x)
+
+        spacial = self.spacial(x)
+        x = local * spacial
+
+        # for check
+        # self.localt = local
+        # self.spacialt = spacial
+        #x = self.norm(x)
+        return x
+        # return [x, edge]
+
+class SCN_Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.unet = UNet(channels=1,classes=15)
+        self.sccov0 = nn.Conv3d(in_channels=15,out_channels=64,kernel_size=[7,7,7],padding=3)
+        self.sccov1 = nn.Conv3d(in_channels=64,out_channels=64,kernel_size=[7,7,7],padding=3)
+        self.sccov2 = nn.Conv3d(in_channels=64,out_channels=64,kernel_size=[7,7,7],padding=3)
+        self.sccov3 = nn.Conv3d(in_channels=64,out_channels=15,kernel_size=[7,7,7],padding=3)
+        self.downsample = nn.MaxPool3d(kernel_size=4)
+        self.upsample = nn.Upsample(scale_factor=4, mode='trilinear', align_corners=True)
+
+    def forward(self,x):
+        local_pred = self.unet(x).cuda(1)
+        spatial_pred = self.downsample(local_pred)
+        spatial_pred = self.sccov0(spatial_pred)
+        spatial_pred = self.sccov1(spatial_pred)
+        spatial_pred = self.sccov2(spatial_pred)
+        spatial_pred = self.sccov3(spatial_pred)
+        spatial_pred = self.upsample(spatial_pred)
+        prediction = spatial_pred*local_pred
+        return prediction
+    
+  class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channel1, out_channel2):
+        super().__init__()
+        self.doubleConv = nn.Sequential(
+            nn.Conv3d(in_channels, out_channel1, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channel1),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv3d(out_channel1, out_channel2, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channel2),
+            nn.LeakyReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        return self.doubleConv(x)
+
+class EdgeOut(nn.Module):
+    def __init__(self, in_channels, edge_num):
+        super().__init__()
+        self.conv1 = nn.Conv3d(in_channels, 64, kernel_size=7, padding=3)
+        self.avgpool = nn.AvgPool3d(3)
+        self.linear = nn.Linear(42 * 42 * 66, edge_num * 3)
+        self.edge_num = edge_num
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.avgpool(x)
+        x = torch.max(x, dim=1)[0]
+        x = torch.reshape(x, (1, 42 * 42 * 66))
+        x = self.linear(x)
+        x = torch.reshape(x, (1, self.edge_num, 3))
+        return x
+
+
+class Down(nn.Module):
+    def __init__(self, in_channels, out_channel1, out_channel2):
+        super().__init__()
+        self.maxpool_conv = nn.Sequential(
+            nn.MaxPool3d(kernel_size=2, padding=0),
+            DoubleConv(in_channels, out_channel1, out_channel2)
+        )
+
+    def forward(self, x):
+        return self.maxpool_conv(x)
+
+
+class Up(nn.Module):
+    def __init__(self, in_channels, out_channel1, out_channel2):
+        super().__init__()
+        self.up =nn.Upsample(scale_factor=2.0, mode="trilinear")
+        self.conv = DoubleConv(in_channels, out_channel2, out_channel2)
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        x = torch.cat([x1, x2], dim=1)
+        x = self.conv(x)
+        return x
+
+
+class OutConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=1)
+        nn.init.normal_(self.conv.weight, 0, 0.0001)
+        nn.init.constant_(self.conv.bias, 0)
+        # self.conv = nn.Conv3d(in_channels, out_channels,kernel_size=1)
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+class Spacial_Info(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.down = nn.Upsample(scale_factor=0.25, mode="trilinear")
+        self.conv1 = nn.Conv3d(in_channels, 64, kernel_size=7, padding=3)
+        self.conv2 = nn.Conv3d(64, 64, kernel_size=7, padding=3)
+        self.conv3 = nn.Conv3d(64, 64, kernel_size=7, padding=3)
+
+        self.conv4 = nn.Conv3d(64, out_channels, kernel_size=7, padding=3)
+        self.conv5 = nn.Conv3d(out_channels, out_channels, kernel_size=7, padding=3)
+        self.conv6 = nn.Conv3d(out_channels, out_channels, kernel_size=7, padding=3)
+        nn.init.normal_(self.conv6.weight, 0, 0.0001)
+        nn.init.constant_(self.conv6.bias, 0)
+        self.softmax = nn.Softmax()
+        self.relu = nn.LeakyReLU(inplace=True)
+
+
+    def forward(self, x):
+        a, b, c = x.shape[2:]
+        x = self.down(x)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.conv3(x)
+        x = self.relu(x)
+        x = self.conv4(x)
+        x = self.relu(x)
+        x = self.conv5(x)
+        x = self.relu(x)
+        x = self.conv6(x)
+        x = self.softmax(x)
+        self.up = nn.Upsample((a, b, c), mode="trilinear")
+        x = self.up(x)
+        return x
+
+class Spacial_Info_Tanh(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.down = nn.Upsample(scale_factor=0.25, mode="trilinear")
+        self.conv1 = nn.Conv3d(in_channels, 64, kernel_size=7, padding=3)
+        self.conv2 = nn.Conv3d(64, 64, kernel_size=7, padding=3)
+        self.conv3 = nn.Conv3d(64, 64, kernel_size=7, padding=3)
+
+        self.conv4 = nn.Conv3d(64, out_channels, kernel_size=7, padding=3)
+        self.conv5 = nn.Conv3d(out_channels, out_channels, kernel_size=7, padding=3)
+        self.conv6 = nn.Conv3d(out_channels, out_channels, kernel_size=7, padding=3)
+        nn.init.normal_(self.conv6.weight, 0, 0.0001)
+        nn.init.constant_(self.conv6.bias, 0)
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):
+        a, b, c = x.shape[2:]
+        x = self.down(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        x = self.conv6(x)
+        x = self.tanh(x)
+        self.up = nn.Upsample((a, b, c), mode="trilinear")
+        x = self.up(x)
+        return x
+
+
+
+```
 
 
 
@@ -1780,6 +2102,500 @@ for epoch in range(epochs):
     print(epoch, valid_loss / len(valid_dl))
 
 ```
+
+
+
+### 数据集加载
+
+#### DataLoader
+
+At the heart of PyTorch data loading utility is the [`torch.utils.data.DataLoader`](https://pytorch.org/docs/stable/data.html?highlight=dataloader#torch.utils.data.DataLoader) class. It represents a Python iterable over a dataset, with support for
+
+- [map-style and iterable-style datasets](https://pytorch.org/docs/stable/data.html?highlight=dataloader#dataset-types),
+- [customizing data loading order](https://pytorch.org/docs/stable/data.html?highlight=dataloader#data-loading-order-and-sampler),
+- [automatic batching](https://pytorch.org/docs/stable/data.html?highlight=dataloader#loading-batched-and-non-batched-data),
+- [single- and multi-process data loading](https://pytorch.org/docs/stable/data.html?highlight=dataloader#single-and-multi-process-data-loading),
+- [automatic memory pinning](https://pytorch.org/docs/stable/data.html?highlight=dataloader#memory-pinning).
+
+These options are configured by the constructor arguments of a [`DataLoader`](https://pytorch.org/docs/stable/data.html?highlight=dataset#torch.utils.data.DataLoader), which has signature:
+
+```python
+DataLoader(dataset, batch_size=1, shuffle=False, sampler=None,
+           batch_sampler=None, num_workers=0, collate_fn=None,
+           pin_memory=False, drop_last=False, timeout=0,
+           worker_init_fn=None, *, prefetch_factor=2,
+           persistent_workers=False)
+```
+
+
+
+#### Dataset
+
+*CLASS*`torch.utils.data.``Dataset`(**args*, ***kwds*) [[SOURCE](https://pytorch.org/docs/stable/_modules/torch/utils/data/dataset.html#Dataset)]
+
+An abstract class representing a [`Dataset`](https://pytorch.org/docs/stable/data.html?highlight=dataset#torch.utils.data.Dataset).
+
+All datasets that represent a map from keys to data samples should subclass it. All subclasses should overwrite `__getitem__()`, supporting fetching a data sample for a given key. Subclasses could also optionally overwrite `__len__()`, which is expected to return the size of the dataset by many [`Sampler`](https://pytorch.org/docs/stable/data.html?highlight=dataset#torch.utils.data.Sampler) implementations and the default options of [`DataLoader`](https://pytorch.org/docs/stable/data.html?highlight=dataset#torch.utils.data.DataLoader).
+
+##### 代码中的例子
+
+```python
+# -*- coding: utf-8 -*-
+import torch
+import torch.utils.data as Data
+torch.manual_seed(1)    # reproducible
+ 
+BATCH_SIZE = 5
+ 
+x = torch.linspace(1, 10, 10)       # this is x data (torch tensor)
+y = torch.linspace(10, 1, 10)       # this is y data (torch tensor)
+ 
+'''先转换成 torch 能识别的 Dataset'''
+torch_dataset = Data.TensorDataset(x, y)
+print(torch_dataset[0])     #输出(tensor(1.), tensor(10.))
+print(torch_dataset[1])     #输出(tensor(2.), tensor(9.))
+ 
+''' 把 dataset 放入 DataLoader'''
+loader = Data.DataLoader(
+    dataset=torch_dataset,      # torch TensorDataset format
+    batch_size=BATCH_SIZE,      # mini batch size
+    shuffle=True,               # 要不要打乱数据 (打乱比较好)
+    #num_workers=2,              # subprocesses for loading data
+)
+ 
+for epoch in range(3):   # train entire dataset 3 times
+    for step, (batch_x, batch_y) in enumerate(loader):  # for each training step
+        # train your data...
+        print('Epoch: ', epoch, '| Step: ', step, '| batch x: ',
+              batch_x.numpy(), '| batch y: ', batch_y.numpy())
+```
+
+运行输出：
+
+```bash
+(tensor(1.), tensor(10.))
+(tensor(2.), tensor(9.))
+Epoch:  0 | Step:  0 | batch x:  [5. 3. 1. 7. 9.] | batch y:  [ 6.  8. 10.  4.  2.]
+Epoch:  0 | Step:  1 | batch x:  [ 8. 10.  2.  6.  4.] | batch y:  [3. 1. 9. 5. 7.]
+Epoch:  1 | Step:  0 | batch x:  [5. 9. 2. 6. 1.] | batch y:  [ 6.  2.  9.  5. 10.]
+Epoch:  1 | Step:  1 | batch x:  [ 3.  4.  7. 10.  8.] | batch y:  [8. 7. 4. 1. 3.]
+Epoch:  2 | Step:  0 | batch x:  [6. 9. 4. 8. 7.] | batch y:  [5. 2. 7. 3. 4.]
+Epoch:  2 | Step:  1 | batch x:  [10.  3.  2.  1.  5.] | batch y:  [ 1.  8.  9. 10.  6.]
+```
+
+
+
+##### 参考例子1
+
+
+
+```python
+class SpineCentroidSet(Dataset):
+    def __init__(self, root: str, files: List[str], mode: str = 'train', norm: bool = True, num_classes: int = 25) -> None:
+        super().__init__()
+        self.files = [os.path.join(root, os.path.basename(p)) for p in files]
+        self.mode = mode
+        self.num_classes = num_classes
+        self.norm = norm
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, index):
+        label_path = self.files[index]
+        image_path = label_path.replace("_seg", "")
+        image = sitk.GetArrayFromImage(sitk.ReadImage(image_path))
+        label = sitk.GetArrayFromImage(sitk.ReadImage(label_path))
+        if self.mode == 'train':
+            image, label = random_crop(image, label)
+        image = normalize(image.astype(np.float32)) if self.norm else image
+        if self.num_classes > 1:
+            landmark = generate_landmark(label, self.num_classes)
+        else:
+            landmark = generate_one_channel_landmark(label)
+        image = image[np.newaxis, ...]
+        label = label[np.newaxis, ...]
+        return image, label, landmark
+    
+def normalize(img: np.ndarray):
+    '''Intensity value of the CT volumes is divided by 2048 and clamped between -1 and 1'''
+    return np.clip(img / 2048, -1, 1)
+
+
+def random_crop(image: np.ndarray, label: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    '''在2mm脊柱图像(尺寸为[Z, 96, 96])中随机裁剪[128, 96, 96]大小'''
+    if label.shape == (128, 96, 96):
+        return image, label
+
+    # np.random.randint是[low, high)区间
+    z_range = (64, label.shape[0] - 64 + 1)
+    label_cropped = np.zeros((128, 96, 96), dtype=np.uint8)
+    classes = np.unique(label_cropped)
+    while(len(classes) == 1):
+        z = np.random.randint(*z_range)
+        label_cropped = label[z-64:z+64]
+        classes = np.unique(label_cropped)
+        # 在VerSe数据集中, 如果椎骨不完整是没有标注的
+        if len(classes) > 1:
+            # TODO 可以修改成按百分比来计算
+            if(label_cropped == classes[1]).sum() != (label == classes[1]).sum():
+                # 删除顶端不完整的标注
+                label_cropped[label_cropped == classes[1]] = 0
+
+            if(label_cropped == classes[-1]).sum() != (label == classes[-1]).sum():
+                # 删除底端不完整的标注
+                label_cropped[label_cropped == classes[-1]] = 0
+        classes = np.unique(label_cropped)
+    image_cropped = image[z-64:z+64]
+    return image_cropped, label_cropped
+
+
+def generate_landmark(label: np.ndarray, num: int) -> np.ndarray:
+    '''Generate one-hot landmark volume'''
+    landmark = np.zeros((num, *label.shape), np.float32)
+    classes = np.unique(label)
+    for c in range(1, num+1):
+        if c in classes:
+            Z, Y, X = np.where(label == c)
+            Z = np.round(Z.mean()).astype(int)
+            Y = np.round(Y.mean()).astype(int)
+            X = np.round(X.mean()).astype(int)
+            landmark[c-1, Z, Y, X] = 1
+    return landmark
+
+
+def generate_one_channel_landmark(label: np.ndarray) -> np.ndarray:
+    '''Generate a single channel landmark volume'''
+    landmark = np.zeros(label.shape, np.float32)
+    classes = np.unique(label)
+    for c in classes[1:]:
+        Z, Y, X = np.where(label == c)
+        Z = np.round(Z.mean()).astype(int)
+        Y = np.round(Y.mean()).astype(int)
+        X = np.round(X.mean()).astype(int)
+        landmark[Z, Y, X] = 1
+    return landmark[np.newaxis, ...]
+
+```
+
+
+
+##### 参考例子2
+
+
+
+```python
+class SegDataset(Dataset):
+    def __init__(
+        self,
+        root,
+        file_list: List[str],
+        mode: str = 'train',
+        patch_size: Tuple[int] = (128, 128, 96),
+        augment: bool = False,
+        weight: bool = False
+    ):
+        super().__init__()
+        self.root = root
+        self.file_list = file_list
+        self.mode = mode
+        self.patch_size = patch_size
+        self.augment = augment
+        self.weight = weight
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, index):
+        if self.mode == 'train':
+            return self._get_train_data(index)
+        return self._get_inf_data(index)
+
+    def _get_train_data(self, index):
+        path = self.file_list[index]
+        basename = os.path.basename(path)
+        ID = basename[:basename.find("_seg.nii.gz")]
+        mask_path = os.path.join(self.root, basename)
+        img_path = mask_path.replace("_seg", "")
+        mask = sitk.GetArrayFromImage(sitk.ReadImage(mask_path))
+        image = sitk.GetArrayFromImage(sitk.ReadImage(img_path))
+        image, mask, landmark, category = self.generate_random_patch(image, mask)
+        image = normalize(image.astype(np.float32))
+        image = np.expand_dims(image, 0)
+        mask = np.expand_dims(mask, 0)
+        landmark = np.expand_dims(landmark, 0)
+        return ID, image, mask, landmark, category
+
+    def _get_inf_data(self, index):
+        path = self.file_list[index]
+        basename = os.path.basename(path)
+        ID = basename[:basename.find("_seg.nii.gz")]
+        mask_path = os.path.join(self.root, basename)
+        img_path = mask_path.replace("_seg", "")
+        mask = sitk.GetArrayFromImage(sitk.ReadImage(mask_path))
+        image = sitk.GetArrayFromImage(sitk.ReadImage(img_path))
+        classes = np.unique(mask)
+        return ID, image, mask, classes[1:]
+
+    def get_bbox(self, shape: np.ndarray, center: tuple):
+        patch_size = list(self.patch_size)[::-1]
+        # 原始图像的bbox | original bbox
+        z_min = max(0, center[0] - patch_size[0]//2)
+        z_max = min(shape[0], center[0] + patch_size[0]//2)
+        y_min = max(0, center[1] - patch_size[1]//2)
+        y_max = min(shape[1], center[1] + patch_size[1]//2)
+        x_min = max(0, center[2] - patch_size[2]//2)
+        x_max = min(shape[2], center[2] + patch_size[2]//2)
+
+        # 新图像的bbox | new bbox
+        Z_MIN = patch_size[0]//2 - (center[0] - z_min)
+        Z_MAX = patch_size[0]//2 + (z_max - center[0])
+        Y_MIN = patch_size[1]//2 - (center[1] - y_min)
+        Y_MAX = patch_size[1]//2 + (y_max - center[1])
+        X_MIN = patch_size[2]//2 - (center[2] - x_min)
+        X_MAX = patch_size[2]//2 + (x_max - center[2])
+        return (z_min, z_max, y_min, y_max, x_min, x_max), (Z_MIN, Z_MAX, Y_MIN, Y_MAX, X_MIN, X_MAX)
+
+    def generate_random_patch(self, image, mask):
+        classes = np.unique(mask)[1:]
+        idx = random.randint(0, len(classes)-1)
+        Z, Y, X = np.where(mask == classes[idx])
+        Z = Z.mean().round().astype(int)
+        Y = Y.mean().round().astype(int)
+        X = X.mean().round().astype(int)
+        patch_size = list(self.patch_size)[::-1]
+        bbox, BBOX = self.get_bbox(mask.shape, (Z, Y, X))
+
+        new_mask = np.zeros(patch_size, dtype=np.uint8)
+        new_img = -1023*np.ones(patch_size, dtype=np.int16)
+        landmark = np.zeros(patch_size, dtype=np.float32)
+        landmark[tuple([shape//2 for shape in patch_size])] = 1
+        new_mask[
+            BBOX[0]:BBOX[1],
+            BBOX[2]:BBOX[3],
+            BBOX[4]:BBOX[5]
+        ] = mask[bbox[0]:bbox[1], bbox[2]:bbox[3], bbox[4]:bbox[5]]
+        new_img[
+            BBOX[0]:BBOX[1],
+            BBOX[2]:BBOX[3],
+            BBOX[4]:BBOX[5]
+        ] = image[bbox[0]:bbox[1], bbox[2]:bbox[3], bbox[4]:bbox[5]]
+        new_mask[new_mask != classes[idx]] = 0
+        new_mask[new_mask > 0] = 1
+        if self.augment:
+            new_img,new_mask = elastic_transformation(new_img,new_mask)
+        return new_img, new_mask, landmark, classes[idx]
+
+    def generate_inf_patch(self, image, mask):
+        img_list = []
+        mask_list = []
+        patch_size = list(self.patch_size)[::-1]
+        classes = np.unique(mask)[1:]
+        for c in classes:
+            new_mask = np.zeros(patch_size, dtype=np.uint8)
+            new_img = -1023*np.ones(patch_size, dtype=np.int16)
+            Z, Y, X = np.where(mask == c)
+            Z = Z.mean().round().astype(int)
+            Y = Y.mean().round().astype(int)
+            X = X.mean().round().astype(int)
+            bbox, BBOX = self.get_bbox(mask.shape, (Z, Y, X))
+            new_mask[
+                BBOX[0]:BBOX[1],
+                BBOX[2]:BBOX[3],
+                BBOX[4]:BBOX[5]
+            ] = mask[bbox[0]:bbox[1], bbox[2]:bbox[3], bbox[4]:bbox[5]]
+            new_img[
+                BBOX[0]:BBOX[1],
+                BBOX[2]:BBOX[3],
+                BBOX[4]:BBOX[5]
+            ] = image[bbox[0]:bbox[1], bbox[2]:bbox[3], bbox[4]:bbox[5]]
+            new_mask[new_mask != c] = 0
+            new_mask[new_mask > 0] = 1
+
+            img_list.append(np.expand_dims(new_img, 0))
+            mask_list.append(np.expand_dims(new_mask, 0))
+
+        new_img = torch.Tensor(np.vstack(img_list)).unsqueeze(
+            1)  # [N,1,96,128,128]
+        new_img = torch.clip(new_img/2048, -1, 1)
+        new_mask = torch.Tensor(np.vstack(mask_list)).unsqueeze(1)
+        landmark = torch.zeros_like(new_mask, dtype=torch.float32)
+        landmark[:, 0, patch_size[0]//2,
+                 patch_size[1]//2, patch_size[2]//2] = 1
+        return TensorDataset(new_img, new_mask, landmark)
+
+def elastic_transformation(img: np.ndarray, mask: np.ndarray, alpha: float = 20, sigma: float = 5):
+    '''Elastic deformation of images as described in [Simard2003]_.'''
+    shape = img.shape
+    dx = gaussian_filter((np.random.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+    dy = gaussian_filter((np.random.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+    dz = gaussian_filter((np.random.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+
+    z, y, x = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), np.arange(shape[2]), indexing='ij')
+    coordinates = np.reshape(z + dz, (-1, 1)), np.reshape(y + dy, (-1, 1)), np.reshape(x + dx, (-1, 1))
+
+    distorted_img = map_coordinates(img, coordinates, None, 3, 'reflect').reshape(shape)
+    distorted_mask = map_coordinates(mask, coordinates, None, 1, 'reflect').reshape(shape)
+    return distorted_img, distorted_mask
+
+```
+
+
+
+##### 参考例子3
+
+
+
+```python
+import os
+import torch
+import numba as nb
+import numpy as np
+import SimpleITK as sitk
+from torch.utils.data import Dataset
+from typing import List
+
+
+cls_map = {
+    11: 0, 12: 1, 13: 2, 14: 3, 15: 4, 16: 5, 17: 6, 18: 7,
+    21: 8, 22: 9, 23: 10, 24: 11, 25: 12, 26: 13, 27: 14, 28: 15,
+    31: 16, 32: 17, 33: 18, 34: 19, 35: 20, 36: 21, 37: 22, 38: 23,
+    41: 24, 42: 25, 43: 26, 44: 27, 45: 28, 46: 29, 47: 30, 48: 31
+}
+
+
+class ToothSet(Dataset):
+    def __init__(self, file_list: List[str], num_class: int, augment_prob: float, detection: bool,  offset: bool):
+        super().__init__()
+        self.file_list = file_list
+        self.augment_prob = augment_prob
+        self.num_class = num_class
+        if detection and offset:
+            raise ValueError("You can only select one type!")
+        self.detection = detection
+        self.offset = offset
+        self.classmap = {v: k for k, v in cls_map.items()}
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, index):
+        image_path = self.file_list[index]
+        label_path = image_path.replace("image", "label")
+        basename = os.path.basename(image_path)
+        image = sitk.ReadImage(image_path)
+        label = sitk.ReadImage(label_path)
+        origin = self.get_origin(label)
+        if np.random.uniform() > self.augment_prob:
+            angle = np.random.randint(-10, 0)
+            radian = angle/180 * np.pi
+            offset = [
+                np.random.randint(-5, 5)*0.5,
+                np.random.randint(-5, 5)*0.5,
+                np.random.randint(-5, 5)*0.5
+            ]
+            center_ijk = np.array(image.GetSize())//2
+            center_ras = image.TransformContinuousIndexToPhysicalPoint(
+                center_ijk.tolist())
+            t = sitk.AffineTransform(3)
+            t.SetCenter(center_ras)
+            t.Rotate(1, 2, radian)
+            t.Translate(offset)
+        else:
+            t = sitk.Transform(3, sitk.sitkIdentity)
+        image = self.transform(image, origin, t, sitk.sitkLinear, -1024)
+        label = self.transform(label, origin, t, sitk.sitkNearestNeighbor, 0)
+        # sitk.WriteImage(image, f"test/image/{basename}")
+        # sitk.WriteImage(label, f"test/label/{basename}")
+        image = sitk.GetArrayFromImage(image)
+        label = sitk.GetArrayFromImage(label)
+        if self.detection:
+            label = self.generate_landmark(label)
+        image = image[np.newaxis, :, :, :]
+        if self.offset:
+            label = label[np.newaxis, :, :, :]
+            seg = (label > 0).astype(np.uint8)
+            offset = generate_offset(label)
+            return image, (seg, offset)
+        return image, label
+
+    def get_origin(self, sitk_label: sitk.Image) -> np.ndarray:
+        '''计算裁剪图像的origin'''
+        size = sitk_label.GetSize()
+        index = np.array(size)//2
+        center = np.array(
+            sitk_label.TransformContinuousIndexToPhysicalPoint(index.tolist()))
+
+        '''训练集中有两类数据
+        ①一类的数据尺寸为80mm*80mm*80mm,这类数据FOV很小,可以直接将裁剪中心置为CT中心
+        ②另一类数据尺寸通常为160mm*160mm*87mm,这类数据FOV较大,需要对中心点进行偏移
+        '''
+        if(size != (160, 160, 160)):
+            label = sitk.GetArrayFromImage(sitk_label)
+            Z, _, _ = np.where(label > 0)
+            index = np.array([
+                size[0]//2,
+                (size[1]//2-144 + size[1]//2 + 48)//2,
+                (Z.min() + Z.max())//2
+            ])
+
+            center = np.array(
+                sitk_label.TransformContinuousIndexToPhysicalPoint(index.tolist()))
+        origin = center - 96*0.5
+        return origin
+
+    def transform(self, image: sitk.Image, origin: tuple, t: sitk.Transform, method: int, fillValue: int = -1024) -> sitk.Image:
+        filter = sitk.ResampleImageFilter()
+        filter.SetInterpolator(method)
+        filter.SetTransform(t)
+        filter.SetSize((192, 192, 192))
+        filter.SetOutputOrigin(origin)
+        filter.SetOutputDirection(image.GetDirection())
+        filter.SetOutputSpacing(image.GetSpacing())
+        filter.SetDefaultPixelValue(fillValue)
+        return filter.Execute(image)
+
+    def generate_landmark(self, label: np.ndarray) -> np.ndarray:
+        '''生成牙齿质心点'''
+        landmark = np.zeros(label.shape, np.float32)
+        classes = np.unique(label)
+        for c in classes[1:]:
+            Z, Y, X = np.where(label == c)
+            Z = np.round(Z.mean()).astype(int)
+            Y = np.round(Y.mean()).astype(int)
+            X = np.round(X.mean()).astype(int)
+            landmark[Z, Y, X] = 1
+        return landmark[np.newaxis, :, :, :]
+
+
+@nb.jit(nopython=True, cache=True)
+def generate_offset(label: np.ndarray):
+    '''使用numba加速偏移值的计算'''
+    classes = np.unique(label)
+    offset = np.zeros((3, 192, 192, 192), nb.int16)
+    for c in classes[1:]:
+        _, Z, Y, X = np.where(label == c)
+        centroid_z = np.round(Z.mean())
+        centroid_y = np.round(Y.mean())
+        centroid_x = np.round(X.mean())
+        for j in range(len(Z)):
+            offset[0, Z[j], Y[j], X[j]] = centroid_z - Z[j]
+            offset[1, Z[j], Y[j], X[j]] = centroid_y - Y[j]
+            offset[2, Z[j], Y[j], X[j]] = centroid_x - X[j]
+    return offset
+```
+
+
+
+
+
+
+
+### 损失函数
+
+
+
+### 训练
 
 
 
@@ -2190,9 +3006,23 @@ print('程序运行时间:%s毫秒' % ((T2 - T1)*1000))
 
 
 
+# 其他库使用
 
 
 
+## SimpleCRF
+
+
+
+
+
+## GeodisTK
+
+
+
+
+
+Landmark-free Statistical Shape Modeling via Neural Flow Deformations
 
 
 

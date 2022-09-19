@@ -169,6 +169,10 @@ Press ANY key to exit...
 
 ## 获取时间
 
+### time
+
+
+
 ```cpp
 #include<iostream>
 #include<ctime>
@@ -206,6 +210,132 @@ Process exited after 0.007458 seconds with return value 0
 
 Press ANY key to exit...
 ```
+
+### chrono
+
+#### 时间转换
+
+
+
+```cpp
+#include <iostream>
+#include <string>
+#include <chrono>
+
+
+int main()
+{
+	std::chrono::hours hour_time = std::chrono::hours(1);
+	
+	std::chrono::minutes minutes_time = std::chrono::duration_cast<std::chrono::minutes>(hour_time);
+	
+	std::chrono::seconds seconds_time = std::chrono::duration_cast<std::chrono::seconds>(hour_time);
+	
+	std::chrono::milliseconds milliseconds_time = std::chrono::duration_cast<std::chrono::milliseconds>(hour_time);
+	
+	std::chrono::microseconds microseconds_time = std::chrono::duration_cast<std::chrono::microseconds>(hour_time);
+	
+	std::cout << "1小时可转换为 \n"
+	<< minutes_time.count() << "分钟 \n"
+	<< seconds_time.count() << "秒 \n"
+	<< milliseconds_time.count() << "毫秒 \n"
+	<< microseconds_time.count() << "微秒" << std::endl;
+	
+	getchar();
+	return 0;
+}
+```
+
+result:
+
+```bash
+1小时可转换为
+60分钟
+3600秒
+3600000毫秒
+3600000000微秒
+```
+
+
+
+#### 输出时刻
+
+```cpp
+#include <iostream>
+#include <string>
+#include <chrono>
+
+
+int main()
+{
+	auto t1 = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch())
+	.count();
+	std::cout << "t1 : \n" << t1 << std::endl;
+	auto t2 = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch())
+	.count();
+	std::cout << "t2 : \n" << t2 << std::endl;
+	getchar();
+	return 0;
+}
+```
+
+result:
+
+```bash
+t1 :
+1663575818607
+t2 :
+1663575818608
+```
+
+#### 输出时间
+
+
+
+```cpp
+#include <iostream>
+#include <chrono>
+#include <ratio>
+#include <thread>
+
+void f()
+{
+	std::this_thread::sleep_for(std::chrono::seconds(1));
+}
+
+int main()
+{
+	auto t1 = std::chrono::high_resolution_clock::now();
+	f();
+	auto t2 = std::chrono::high_resolution_clock::now();
+	
+	// integral duration: requires duration_cast
+	auto int_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
+	
+	// fractional duration: no duration_cast needed
+	std::chrono::duration<double, std::milli> fp_ms = t2 - t1;
+	
+	std::cout << "f() took " << fp_ms.count() << " ms, "
+	<< "or " << int_ms.count() << " whole milliseconds\n";
+}
+```
+
+result:
+
+```bash
+f() took 1003.15 ms, or 1003 whole milliseconds
+
+--------------------------------
+Process exited after 1.071 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+
+
+
 
 
 

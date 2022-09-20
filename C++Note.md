@@ -167,6 +167,367 @@ Press ANY key to exit...
 
 
 
+
+
+## std::function介绍
+
+类模版`std::function`是一种通用、多态的函数封装。`std::function`的实例可以对任何可以调用的目标实体进行存储、复制、和调用操作，这些目标实体包括普通函数、Lambda表达式、函数指针、以及其它函数对象等。`std::function`对象是对C++中现有的可调用实体的一种类型安全的包裹（我们知道像函数指针这类可调用实体，是类型不安全的）。
+
+通常std::function是一个函数对象类，它包装其它任意的函数对象，被包装的函数对象具有类型为T1, …,TN的N个参数，并且返回一个可转换到R类型的值。`std::function`使用 模板转换构造函数接收被包装的函数对象；特别是，闭包类型可以隐式地转换为`std::function`。
+
+最简单的理解就是：
+
+　　　通过`std::function`对C++中各种可调用实体（普通函数、Lambda表达式、函数指针、以及其它函数对象等）的封装，形成一个新的可调用的`std::function`对象；让我们不再纠结那么多的可调用实体。一切变的简单粗暴。
+
+
+
+```cpp
+#include <functional>
+#include <iostream>
+using namespace std;
+
+std::function< int(int)> Functional;
+
+// 普通函数
+int TestFunc(int a)
+{
+	return a;
+}
+
+// Lambda表达式
+auto lambda = [](int a)->int{ return a; };
+
+// 仿函数(functor)
+class Functor
+{
+public:
+	int operator()(int a)
+	{
+		return a;
+	}
+};
+
+// 1.类成员函数
+// 2.类静态函数
+class TestClass
+{
+public:
+	int ClassMember(int a) { return a; }
+	static int StaticMember(int a) { return a; }
+};
+
+int main()
+{
+	// 普通函数
+	Functional = TestFunc;
+	int result = Functional(10);
+	cout << "普通函数："<< result << endl;
+	
+	// Lambda表达式
+	Functional = lambda;
+	result = Functional(20);
+	cout << "Lambda表达式："<< result << endl;
+	
+	// 仿函数
+	Functor testFunctor;
+	Functional = testFunctor;
+	result = Functional(30);
+	cout << "仿函数："<< result << endl;
+	
+	// 类成员函数
+	TestClass testObj;
+	Functional = std::bind(&TestClass::ClassMember, testObj, std::placeholders::_1);
+	result = Functional(40);
+	cout << "类成员函数："<< result << endl;
+	
+	// 类静态函数
+	Functional = TestClass::StaticMember;
+	result = Functional(50);
+	cout << "类静态函数："<< result << endl;
+	
+	return 0;
+}
+```
+
+
+
+result:
+
+```bash
+普通函数：10
+Lambda表达式：20
+仿函数：30
+类成员函数：40
+类静态函数：50
+
+--------------------------------
+Process exited after 0.07694 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+
+
+## std::bind
+
+同时用到了：` std::placeholders`.
+
+### 概述
+
+
+
+`bind`函数可以看作一个通用的函数适配器，所谓适配器，即使某种事物的行为类似于另外一种事物的一种机制，如容器适配器：`stack(栈)`、`queue(队列)`、`priority_queue(优先级队列)`。
+ `bind`函数接受一个可调用对象，生成一个新的可调用对象来适配原对象。
+
+### 函数原型
+
+```kotlin
+template <class Fn, class... Args>
+  /* unspecified */ bind (Fn&& fn, Args&&... args);
+```
+
+`bind`函数接受一个逗号分割的参数列表`args`，对应给定函数对象`fn`的参数，返回一个新的函数对象。
+ 参数列表`args`中：
+
+- 如果绑定到一个值，则调用返回的函数对象将始终使用该值作为参数
+- 如果是一个形如`_n`的占位符，则调用返回的函数对象会转发传递给调用的参数(该参数的顺序号由占位符指定)
+
+### 使用
+
+
+
+```cpp
+#include <functional> //bind函数 placeholders命名空间
+
+int Plus(int x, int y) {
+    return x + y;
+}
+
+int PlusOne(int x) {
+    auto func = std::bind(Plus, std::placeholders::_1, 1);
+    return func(x);
+}
+
+int main()
+{
+    std::cout << PlusOne(9) << std::endl; //结果 10
+    return 0;
+}
+```
+
+**注：**示例代码中的`_1`即为形如`_n`的占位符，其定义在命名空间`placeholders`中，而此命名空间又定义在命名空间`std`中
+
+### 使用场景
+
+根据`bind`函数的特征，有以下几个场景时可以使用`bind`：
+
+1. 当`bind`函数的参数列表绑定到一个值时，则调用返回的函数对象将始终使用该值作为参数。所以`bind`函数可以将一个函数的参数特例化，如上文的示例代码
+2. 当`bind`函数的参数列表是一个占位符时，调用返回的函数对象的参数顺序号由占位符指定，所以`bind`函数可以对调用函数对象的参数重新安排顺序，例如：
+
+
+
+```swift
+using namespace std;
+
+void output(int a, int b, int c) {
+    cout << a << " " << b << " " << c;
+}
+
+int main()
+{
+    auto func = bind(output, placeholders::_2, placeholders::_1, placeholders::_3);
+    func(1, 2, 3); //结果 2 1 3
+    return 0;
+}
+```
+
+1. 与`std::function`配合，实现回调函数。具体见文章[C++ std::function](https://www.jianshu.com/p/4ea00ee0dabd)，这里不再赘述。
+
+### 其他
+
+一个知识点厉不厉害，归根到底还是要经过实践的考验，下面就来看看`std::bind`到底怎么用。
+
+先看看《[C++11中的std::function](https://blog.csdn.net/u013654125/article/details/100140547)》中那段代码，`std::function`可以绑定全局函数，静态函数，但是绑定类的成员函数时，必须要借助`std::bind`的帮忙。但是话又说回来，不借助`std::bind`也是可以完成的，只需要传一个*this变量进去就好了，比如：
+
+```cpp
+#include <iostream>
+#include <functional>
+using namespace std;
+
+class View
+{
+public:
+	void onClick(int x, int y)
+	{
+		cout << "X : " << x << ", Y : " << y << endl;
+	}
+};
+
+// 定义function类型, 三个参数
+function<void(View, int, int)> clickCallback;
+
+int main(int argc, const char * argv[])
+{
+	View button;
+	
+	// 指向成员函数
+	clickCallback = &View::onClick;
+	
+	// 进行调用
+	clickCallback(button, 10, 123);
+	return 0;
+}
+```
+
+result:
+
+```bash
+X : 10, Y : 123
+
+--------------------------------
+Process exited after 0.008874 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+再来一段示例谈谈怎么使用std::bind代码：
+
+```cpp
+#include <iostream>
+#include <functional>
+using namespace std;
+
+int TestFunc(int a, char c, float f)
+{
+	cout << a << endl;
+	cout << c << endl;
+	cout << f << endl;
+	
+	return a;
+}
+
+int main()
+{
+	auto bindFunc1 = bind(TestFunc, std::placeholders::_1, 'A', 100.1);
+	bindFunc1(10);
+	
+	cout << "=================================\n";
+	
+	auto bindFunc2 = bind(TestFunc, std::placeholders::_2, std::placeholders::_1, 100.1);
+	bindFunc2('B', 10);
+	
+	cout << "=================================\n";
+	
+	auto bindFunc3 = bind(TestFunc, std::placeholders::_2, std::placeholders::_3, std::placeholders::_1);
+	bindFunc3(100.1, 30, 'C');
+	
+	return 0;
+}
+```
+
+result:
+
+```bash
+10
+A
+100.1
+=================================
+10
+B
+100.1
+=================================
+30
+C
+100.1
+
+--------------------------------
+Process exited after 0.02071 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+以下是使用std::bind的一些需要注意的地方：
+
+- bind预先绑定的参数需要传具体的变量或值进去，对于预先绑定的参数，是pass-by-value的；
+- 对于不事先绑定的参数，需要传std::placeholders进去，从_1开始，依次递增。placeholder是pass-by-reference的；
+- bind的返回值是可调用实体，可以直接赋给std::function对象；
+- 对于绑定的指针、引用类型的参数，使用者需要保证在可调用实体调用之前，这些参数是可用的；
+- 类的this可以通过对象或者指针来绑定。
+
+
+
+## std::lambda
+
+
+
+lambda是C++11中才引入的新特性，能定义匿名对象，而不必定义独立的函数和函数对象。
+
+在介绍函数对象的for_each例子中，如果不用创建函数对象，可以使用下面
+
+std::for_each(dest.begin(), dest.end(), [](int i){ std::cout << ' ' << i; });
+
+上述代码中红色部分就是ambda表达式，编译器会对这部分代码生成一个匿名的函数对象类。
+
+如果只是在某一处使用，使用lambda表示更加简洁，不用特意写一个函数或者函数对象类；使用lambda表达式表达能力更强，提高代码清晰度。
+
+ 
+
+### lambda的4种不同形式
+
+[ capture ] ( params ) mutable exception attribute -> ret { body }  —— 这是一个完整的声明。
+
+[ capture ] ( params ) -> ret { body }  ——去掉了mutable关键字，即不能修改捕获外部对象的值（外部变量在capture中定义，见后面介绍）
+
+[ capture ] ( params ) { body } ——去掉了返回值类型ret的定义，要么根据函数体body中的return自动推倒，要么返回类型是void（上述例子用的就是这个形式）。
+
+[ capture ] { body } ——去掉了输入参数列表params的定义，即函数参数列表空，是()
+
+ 
+
+### [ capture ]说明
+
+该部分指定了哪些外部变量可以在lambda函数体body中可见,符号可按如下规则传入:
+
+1. []      不捕获任何外部变量 
+2. [=]     以值的形式捕获lambda表达式所在函数的函数体中的所有外部变量 
+3. [&]     以引用的形式捕获lambda表达式所在函数的函数体中的所有外部变量
+4. [a,&b]  按值捕获a，并按引用捕获b 
+5. [=, &a] 以引用的形式捕获a，其余变量以值的形式捕获 
+6. [&， a] 以值的形式捕获a，其余变量以引用的形式捕获 
+7. [this]  按值捕获了this指针 
+
+### 其他参考
+
+[C++11 lambda表达式精讲 (biancheng.net)](http://c.biancheng.net/view/3741.html)
+
+```cpp
+class A
+{
+    public:
+    int i_ = 0;
+    void func(int x, int y)
+    {
+        auto x1 = []{ return i_; };                    // error，没有捕获外部变量
+        auto x2 = [=]{ return i_ + x + y; };           // OK，捕获所有外部变量
+        auto x3 = [&]{ return i_ + x + y; };           // OK，捕获所有外部变量
+        auto x4 = [this]{ return i_; };                // OK，捕获this指针
+        auto x5 = [this]{ return i_ + x + y; };        // error，没有捕获x、y
+        auto x6 = [this, x, y]{ return i_ + x + y; };  // OK，捕获this指针、x、y
+        auto x7 = [this]{ return i_++; };              // OK，捕获this指针，并修改成员的值
+    }
+};
+int a = 0, b = 1;
+auto f1 = []{ return a; };               // error，没有捕获外部变量
+auto f2 = [&]{ return a++; };            // OK，捕获所有外部变量，并对a执行自加运算
+auto f3 = [=]{ return a; };              // OK，捕获所有外部变量，并返回a
+auto f4 = [=]{ return a++; };            // error，a是以复制方式捕获的，无法修改
+auto f5 = [a]{ return a + b; };          // error，没有捕获变量b
+auto f6 = [a, &b]{ return a + (b++); };  // OK，捕获a和b的引用，并对b做自加运算
+auto f7 = [=, &b]{ return a + (b++); };  // OK，捕获所有外部变量和b的引用，并对b做自加运算
+```
+
+
+
 ## 获取时间
 
 ### time

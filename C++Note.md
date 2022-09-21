@@ -528,6 +528,140 @@ auto f7 = [=, &b]{ return a + (b++); };  // OK，捕获所有外部变量和b的
 
 
 
+## std::min_element
+
+[C++ STL min_element 使用说明 - 简书 (jianshu.com)](https://www.jianshu.com/p/959ac770fb17)
+
+`std::min_element` 用于寻找范围 [first, last) 中的最小元素。
+
+前2个参数指定容器的范围，第3个参数是比较函数，为可选参数。
+ 返回值为指向范围 [first, last) 中最小元素的迭代器。
+ 若范围中有多个元素等价于最小元素，则返回指向首个这种元素的迭代器。若范围为空则返回 last 。
+
+关于比较函数， 默认是用 operator< 比较元素， 也可以自定义比较函数。
+ 所以`std::min_element`两种函数签名如下：
+
+```cpp
+template< class ForwardIt > 
+constexpr ForwardIt min_element( ForwardIt first, ForwardIt last );
+```
+
+
+
+```cpp
+template< class ForwardIt, class Compare >
+constexpr ForwardIt min_element( ForwardIt first, ForwardIt last, Compare comp );
+```
+
+`std::max_element`与`std::min_element`类似，只是用于寻找最大的元素。
+
+### 头文件
+
+```
+#include <algorithm>
+```
+
+### 例子：求数组里最下的元素
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <algorithm>
+
+int main(int argc, char **argv) 
+{  
+    std::vector<int> v{3, 1, 4, 1, 5, 9};
+    
+    std::vector<int>::iterator minElement = std::min_element(v.begin(), v.end());
+    
+    std::cout << "min element: " << *(minElement) << std::endl;
+    std::cout << "min element at:" << std::distance(v.begin(), minElement) << std::endl;
+    return 0;
+}
+```
+
+result:
+
+```bash
+min element: 1
+min element at:1
+
+--------------------------------
+Process exited after 0.03599 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+### 例子：自定义比较函数
+
+比如如下自定义比较函数，把求最小指编程求最大值
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <algorithm>
+
+int main(int argc, char **argv) 
+{  
+    std::vector<int> v{3, 1, 4, 1, 5, 9};
+    
+    auto comp = [](int i, int j){ return i>j;}; //  i<j : min;  i>j : max   
+    
+    std::vector<int>::iterator maxElement = std::min_element(v.begin(), v.end(), comp);
+    
+    std::cout << "max element: " << *(maxElement) << std::endl;
+    std::cout << "max element at:" << std::distance(v.begin(), maxElement) << std::endl;
+    return 0;
+}
+```
+
+result:
+
+```bash
+max element: 9
+max element at:5
+
+--------------------------------
+Process exited after 0.0654 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+### std::min_element 与 std::min 的区别
+
+
+
+`std::min`一般用于求 a 与 b 的较小者 或者求 initializer_list ilist 中值的最小者。
+ `std::min_element`是求一个范围内的最小者的迭代器。范围可以是全部容器，也可以是容器的一个子区间。
+ 所以它们的适用范围和返回值不一样。
+
+### 参考
+
+[https://zh.cppreference.com/w/cpp/algorithm/min_element](https://links.jianshu.com/go?to=https%3A%2F%2Fzh.cppreference.com%2Fw%2Fcpp%2Falgorithm%2Fmin_element)
+ [http://www.cplusplus.com/reference/algorithm/min_element/](https://links.jianshu.com/go?to=http%3A%2F%2Fwww.cplusplus.com%2Freference%2Falgorithm%2Fmin_element%2F)
+ [https://zh.cppreference.com/w/cpp/algorithm/min](https://links.jianshu.com/go?to=https%3A%2F%2Fzh.cppreference.com%2Fw%2Fcpp%2Falgorithm%2Fmin)
+
+
+
+作者：book_02
+链接：https://www.jianshu.com/p/959ac770fb17
+来源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## 获取时间
 
 ### time

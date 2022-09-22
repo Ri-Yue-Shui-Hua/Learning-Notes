@@ -2014,23 +2014,63 @@ class Spacial_Info_Tanh(nn.Module):
 
 
 
+# 神经网络任务分类
+
+## 检测任务
+
+### RetianNet
+
+`RetinaNet`算法源自2018年Facebook AI Research的论文` Focal Loss for Dense Object Detection`，作者包括了Ross大神、Kaiming大神和Piotr大神。该论文最大的贡献在于`提出了Focal Loss用于解决类别不均衡问题`，从而创造了RetinaNet（`One Stage目标检测算法`）这个精度超越经典Two Stage的Faster-RCNN的目标检测网络。
+
+#### 论文相关信息
+
+ 1.论文题目：Focal Loss for Dense Object Detection
+
+ 2.发表时间：2017
+
+ 3.文献地址：[https://arxiv.org/pdf/1708.02002.pdf](https://link.zhihu.com/?target=https%3A//arxiv.org/pdf/1708.02002.pdf)
+
+4.论文作者: Tsung-Yi Lin, Kaiming He
+
+ 5.论文源码：code:[https://github.com/facebookresearch/Detectron](https://link.zhihu.com/?target=https%3A//github.com/facebookresearch/Detectron).
 
 
 
+> **目标检测的 Two Stage 与 One Stage**
+
+基于深度学习的目标检测算法有两类经典的结构：Two Stage 和 One Stage。
+
+***Two Stage***：例如Faster-RCNN算法。第一级专注于proposal的提取，第二级对提取出的proposal进行分类和精确坐标回归。两级结构准确度较高，但因为第二级需要单独对每个proposal进行分类/回归，速度上就打了折扣
+
+***One Stage***：例如SSD，YOLO算法。此类算法摒弃了提取proposal的过程，只用一级就完成了识别/回归，虽然速度较快但准确率远远比不上两级结构、
+
+**产生精度差异的主要原因：类别失衡（Class Imbalance）**。One Stage方法在得到特征图后，会产生密集的目标候选区域，而这些大量的候选区域中只有很少一部分是真正的目标，这样就造成了机器学习中经典的训练样本正负不平衡的问题。它往往会造成最终算出的training loss为占绝对多数但包含信息量却很少的负样本所支配，少量正样本提供的关键信息却不能在一般所用的training loss中发挥正常作用，从而无法得出一个能对模型训练提供正确指导的loss（而Two Stage方法得到proposal后，其候选区域要远远小于One Stage产生的候选区域，因此不会产生严重的类别失衡问题）。常用的解决此问题的方法就是负样本挖掘，或其它更复杂的用于过滤负样本从而使正负样本数维持一定比率的样本取样方法。该论文中提出了Focal Loss来对最终的Loss进行校正。
 
 
 
+![image-20220922230225871](DeepLearning.assets/image-20220922230225871.png)
 
 
 
+![image-20220922230245214](DeepLearning.assets/image-20220922230245214.png)
+
+![image-20220922230326637](DeepLearning.assets/image-20220922230326637.png)
 
 
 
+![image-20220922230343235](DeepLearning.assets/image-20220922230343235.png)
 
 
 
+![image-20220922230402268](DeepLearning.assets/image-20220922230402268.png)
 
 
+
+![image-20220922230423676](DeepLearning.assets/image-20220922230423676.png)
+
+
+
+![image-20220922230443113](DeepLearning.assets/image-20220922230443113.png)
 
 
 
@@ -2838,8 +2878,6 @@ Pytorch提供了许多预训练好的网络模型（VGG，ResNet系列，mobilen
 
 
 
-# 目标检测
-
 
 
 [[PyTorch 学习笔记\] 8.2 目标检测简介 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/259494709)
@@ -2877,6 +2915,16 @@ batch:
 collate_result:
 ((1, 2, 3), (4, 5, 6))
 ```
+
+
+
+
+
+
+
+
+
+
 
 
 

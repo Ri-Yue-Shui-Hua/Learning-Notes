@@ -2639,6 +2639,26 @@ def generate_offset(label: np.ndarray):
 
 
 
+### 思维导图
+
+
+
+[PyTorch 全部笔记的思维导图精简记忆版_孤柒「一起学计算机」的博客-CSDN博客_pytorch思维导图](https://blog.csdn.net/weixin_43959833/article/details/117002441)
+
+
+
+![pytorch简介](DeepLearning.assets/pytorch简介.png)
+
+
+
+![神经网络基础](DeepLearning.assets/神经网络基础.png)
+
+
+
+![建造一个神经网络](DeepLearning.assets/建造一个神经网络.png)
+
+
+
 
 
 ## tensorflow

@@ -2637,6 +2637,192 @@ def generate_offset(label: np.ndarray):
 
 ### 训练
 
+#### 定义损失函数和优化器
+
+定义一个损失函数和优化器 让我们使用分类交叉熵Cross-Entropy 作损失函数，动量SGD做优化器。
+
+```python
+import torch.optim as optim
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+```
+
+#### 训练网络
+
+[PyTorch 图像分类器 - PyTorch官方教程中文版 (pytorch123.com)](https://www.pytorch123.com/SecondSection/training_a_classifier/)
+
+##### 参考1
+
+
+
+训练网络 这里事情开始变得有趣，我们只需要在数据迭代器上循环传给网络和优化器 输入就可以。
+
+```python
+for epoch in range(2):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate(trainloader, 0):
+        # get the inputs
+        inputs, labels = data
+
+        # zero the parameter gradients
+        optimizer.zero_grad()
+
+        # forward + backward + optimize
+        outputs = net(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        # print statistics
+        running_loss += loss.item()
+        if i % 2000 == 1999:    # print every 2000 mini-batches
+            print('[%d, %5d] loss: %.3f' %
+                  (epoch + 1, i + 1, running_loss / 2000))
+            running_loss = 0.0
+
+print('Finished Training')
+```
+
+
+
+##### 参考2
+
+```python
+for ep in range(START, EPOCHS):
+        train_loss = 0
+        begin = time.time()
+        model.train()
+        for step, (image, landmark) in enumerate(train_loader):
+            inputs = image.cuda().float()
+            target = gaussian(landmark.cuda())
+
+            outputs = model(inputs)
+            outputs = torch.tanh(outputs)
+            loss = criterion(outputs, target)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+            print("Epoch:{}/{}\tBatch:{}/{}\tLoss:{:.6f}".format(
+                ep+1, EPOCHS, step+1, NUM_BATCHES, train_loss/(step+1), end='\r'))
+
+        model.eval()
+        val_loss = 0
+        for step, (image, landmark) in enumerate(test_loader):
+            inputs = image.cuda().float()
+            target = gaussian(landmark.cuda())
+            with torch.no_grad():
+                outputs = model(inputs)
+                outputs = torch.tanh(outputs)
+                loss = F.mse_loss(outputs, target)
+            val_loss += loss
+
+        train_loss /= NUM_BATCHES
+        val_loss /= len(test_loader)
+        logger.info("Epoch:{}/{}\tTrain:{:.6f}\tVal:{:.6f}\tTime:{:.3f}s".format(
+            ep+1, EPOCHS, train_loss, val_loss, time.time()-begin))
+
+        checkpoint = {
+            "epoch": ep,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "train_loss": train_loss,
+            "val_loss": val_loss
+        }
+
+        if ep % 10 == 0:
+            torch.save(checkpoint, os.path.join(
+                MODEL_PATH, f"checkpoint_{ep}.pth"))
+        if train_loss + val_loss < BEST_SCORE:
+            BEST_SCORE = train_loss + val_loss
+            torch.save(checkpoint, os.path.join(
+                MODEL_PATH, f"{MODEL_PATH}.pth"))
+
+
+```
+
+
+
+##### 参考3
+
+```python
+for ep in range(START, EPOCHS):
+        train_dc_loss = 0
+        train_l1_loss = 0
+        begin = time.time()
+        model.train()
+        for step, (image, (seg, offset)) in enumerate(train_loader):
+            inputs = image.cuda().float()
+            seg_gt = seg.cuda().float()
+            offset_gt = offset.cuda().float()
+
+            pred_seg, pred_offset = model(inputs)
+
+            dice_loss = seg_loss(pred_seg, seg_gt)
+            l1_loss = offset_loss(pred_offset, offset_gt)
+
+            optimizer.zero_grad()
+            loss = dice_loss + 5 * l1_loss
+            loss.backward()
+            optimizer.step()
+
+            train_dc_loss += dice_loss.item()
+            train_l1_loss += l1_loss.item()
+            print("Epoch:{}/{}\tBatch:{}/{}\tDice Loss:{:.6f}\tL1 Loss:{:.6f}".format(
+                ep+1, EPOCHS, step+1, NUM_BATCHES, train_dc_loss/(step+1), train_l1_loss/(step+1), end='\r'))
+
+        model.eval()
+        val_dc = 0
+        val_l1 = 0
+        for step, (image, (seg, offset)) in enumerate(test_loader):
+            inputs = image.cuda().float()
+            with torch.no_grad():
+                pred_seg, pred_offset = model(inputs)
+                pred_seg = torch.sigmoid(pred_seg)
+                val_l1 += F.smooth_l1_loss(pred_offset, offset.cuda().float())
+
+            seg = seg.squeeze().numpy()
+            pred_seg = pred_seg.cpu().squeeze().numpy()
+            pred_seg = (pred_seg >= 0.5).astype(np.uint8)
+            val_dc += Dice(pred_seg, seg)
+        train_dc_loss /= NUM_BATCHES
+        train_l1_loss /= NUM_BATCHES
+        val_dc /= len(test_loader)
+        val_l1 /= len(test_loader)
+
+        logger.info("Epoch:{}/{}\tTrainDC:{:.2f}%\tTrainL1:{:.6f}\tValDC:{:.2f}%\tValL1:{:.6f}\tTime:{:.3f}s".format(
+            ep+1, EPOCHS, (1-train_dc_loss)*100, train_l1_loss, val_dc*100, val_l1, time.time()-begin))
+
+        checkpoint = {
+            "epoch": ep,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "train_dc_loss": train_dc_loss,
+            "train_l1_loss": train_l1_loss,
+            "val_dc": val_dc,
+            "val_l1": val_l1,
+        }
+
+        if ep % 5 == 0:
+            torch.save(checkpoint, os.path.join(
+                MODEL_PATH, f"checkpoint_{ep}.pth"))
+        if train_dc_loss + val_dc + 5*train_l1_loss + 5*val_l1 < BEST_SCORE:
+            BEST_SCORE = train_dc_loss + val_dc + 5*train_l1_loss + 5*val_l1
+            torch.save(checkpoint, os.path.join(
+                MODEL_PATH, f"{MODEL_PATH}.pth"))
+
+```
+
+
+
+![image-20220927222324416](DeepLearning.assets/image-20220927222324416.png)
+
+
+
 
 
 ### 思维导图
@@ -2656,6 +2842,187 @@ def generate_offset(label: np.ndarray):
 
 
 ![建造一个神经网络](DeepLearning.assets/建造一个神经网络.png)
+
+
+
+### pytorch导出onnx模型
+
+
+
+```python
+import torch
+import torch.nn as nn
+from torch.onnx import export
+from lib.network import UNet, InstanceUNet
+
+
+################## 导出质心检测模型 ##################
+model_path = "UNet/UNet.pth"
+net = UNet(1, 1)
+net.eval()
+ckpt = torch.load(model_path, map_location="cpu")
+net.load_state_dict(ckpt['model_state_dict'])
+model = nn.Sequential(
+    net,
+    nn.Tanh(),
+)
+
+dummy_input = torch.rand((1, 1, 192, 192, 192))
+with torch.no_grad():
+    output = model(dummy_input)
+
+export(
+    model,
+    dummy_input,
+    'tooth_centroid.onnx',
+    input_names=['input'],
+    output_names=['centroid'],
+    opset_version=11,
+    verbose=True
+)
+
+################## 导出实例分割模型 ##################
+model_path = "UNetInstance/UNetInstance.pth"
+
+
+class Instance(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = InstanceUNet(1, 1)
+
+    def forward(self, x):
+        seg, offset = self.net(x)
+        seg = torch.sigmoid(seg)
+        offset_z = offset[:, 0]
+        offset_y = offset[:, 1]
+        offset_x = offset[:, 2]
+        return seg, offset_z, offset_y, offset_x
+
+
+instance = Instance()
+instance.eval()
+ckpt = torch.load(model_path, map_location='cpu')
+instance.net.load_state_dict(ckpt['model_state_dict'])
+
+with torch.no_grad():
+    output, offset_z, offset_y, offset_x = instance(dummy_input)
+
+export(
+    instance,
+    dummy_input,
+    "tooth_offset.onnx",
+    input_names=['input'],
+    output_names=['seg', 'offset_z', 'offset_y', 'offset_x'],
+    opset_version=11,
+    verbose=True,
+)
+```
+
+
+
+```python
+import torch
+import torch.nn as nn
+from lib.network import UNet
+from torch.onnx import export
+
+
+if __name__ == '__main__':
+    inputs = torch.rand((1, 1, 96, 144, 128))
+    net = UNet(1, 1, True)
+    net.eval()
+    checkpoint = torch.load(
+        "UNet_scSE_mask/UNet_scSE_mask.pth", map_location='cpu')
+    net.load_state_dict(checkpoint['model_state_dict'])
+    model = nn.Sequential(
+        net,
+        nn.Sigmoid()
+    )
+
+    export(
+        model,
+        inputs,
+        "MandibleCanalSeg_v2.onnx",
+        input_names=['input'],
+        output_names=['seg'],
+        opset_version=11
+    )
+
+```
+
+
+
+```python
+import SimpleITK as sitk
+    from torch.onnx import export
+    from torchvision.ops.feature_pyramid_network import LastLevelP6P7
+    from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
+
+    img = sitk.GetArrayFromImage(sitk.ReadImage("raw/003.nii.gz"))
+    inputs = torch.as_tensor(img)
+
+    backbone = resnet_fpn_backbone(
+        'resnet50', False, returned_layers=[2, 3, 4], extra_blocks=LastLevelP6P7(256, 256))
+    model = ExportRetina(backbone)
+    ckpt = torch.load("Retina/Retina.pth")
+    model.retina.load_state_dict(ckpt['model_state_dict'])
+    model.eval()
+
+    with torch.no_grad():
+        boxes, scores = model(inputs)
+
+    export(
+        model,
+        inputs,
+        "Onnx/RotateRetina.onnx",
+        opset_version=11,
+        input_names=["PanoVol"],
+        output_names=["boxes", "scores"],
+        dynamic_axes={
+            "PanoVol": {0: 'width', 1: 'height', 2: 'thickness'},
+            "boxes": {0: 'num'},
+            "scores": {0: 'num'}
+        }
+    )
+```
+
+
+
+```python
+ref = sitk.ReadImage("image/001.nii.gz")
+    image = sitk.GetArrayFromImage(ref)
+    label = sitk.GetArrayFromImage(sitk.ReadImage('label/001.nii.gz'))
+    classes = np.unique(label)[1:]
+    centroids = []
+    for c in classes:
+        Z, Y, X = np.where(label == c)
+        centroids.append([int(Z.mean()), int(Y.mean()), int(X.mean())])
+
+    centroids = torch.as_tensor(centroids)
+    img = torch.as_tensor(image)
+
+    patch_generator = PatchGenerator()
+    patches = patch_generator(img, centroids)
+    inputs = patches[0].unsqueeze(0).unsqueeze(0).float()
+    model = Model()
+    ckpt = torch.load("UNet/UNet.pth", map_location="cpu")
+    model.unet.load_state_dict(ckpt['model_state_dict'])
+    model.eval()
+
+    with torch.no_grad():
+        outputs = model(inputs)
+
+    export(
+        model,
+        inputs,
+        "tooth_cls.onnx",
+        opset_version=11,
+        input_names=["cropped_img"],
+        output_names=["output"]
+    )
+```
+
+
 
 
 

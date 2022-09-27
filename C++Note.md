@@ -730,7 +730,17 @@ void SetValue(int n)
 
 **解释：**启动两个进程A和B，A和B都调用了这个DLL，假如A调用了SetValue(5); B接着调用int m = GetValue(); 那么m的值不一定是5，而是一个未定义的值。因为DLL中的全局数据对于每一个调用它的进程而言，是私有的，不能共享的。假如你对g_Value进行了初始化，那么g_Value就一定会被放进MyData段中。换句话说，如果A调用了SetValue(5); B接着调用int m = GetValue(); 那么m的值就一定是5，这就实现了跨进程之间的数据通信。
 
+### \#program region
 
+　　#program region用于折叠特定的代码段，示例如下：
+
+```cpp
+#pragma region Variables
+HWND hWnd;
+const size_t Max_Length = 20;
+//other variables
+#pragma endregion This region contains global variables.
+```
 
 
 

@@ -1,0 +1,23 @@
+onnx-example:’
+-
+X
+pads
+valueY"Pad*
+mode"constant 
+test_modelZ
+X
+
+
+Z
+pads
+
+
+Z
+value
+
+
+b
+Y
+
+
+B

@@ -2074,6 +2074,20 @@ class Spacial_Info_Tanh(nn.Module):
 
 
 
+## 分割任务
+
+
+
+### BiSeNet
+
+使用了ContextPath, SpacingPath, ARM, FFM等。
+
+
+
+![BiSeNet.onnx](DeepLearning.assets/BiSeNet.onnx.svg)
+
+
+
 
 
 # 深度学习训练网络通用架构

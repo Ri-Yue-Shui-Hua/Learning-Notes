@@ -608,6 +608,28 @@ int main(){
 
 
 
+[c++ - 将 vector (2D数组)的 vector 重置为零 - IT工具网 (coder.work)](https://www.coder.work/article/2757207)
+
+vector设置为0
+
+```cpp
+// 1d
+std::fill(v.begin(), v.end(), 0);
+// 2d
+for (auto& sub : v) {
+    std::fill(sub.begin(), sub.end(), 0);
+}
+// 2d
+std::for_each(v.begin(), v.end(),
+              [](auto& sub) {
+                  std::fill(sub.begin(), sub.end(), 0);
+              });
+```
+
+
+
+
+
 ### deque容器
 
 **deque容器基本概念**

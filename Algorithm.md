@@ -1359,55 +1359,720 @@ void radixsort(int data[], int n) //基数排序
 
 
 
+# 其他算法
+
+
+
+[从EM算法看K-Means和GMM的联系 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/450945530)
+
+## 硬聚类 v.s. 软聚类
+
+简单来说，硬聚类赋予各数据点明确的标签，软聚类输出数据点属于各类的概率。如果考虑最终目的，二者都能完成“聚类”这一目标。以K-Means和GMM为例作比，我认为二者最重要的区别在于以下三点：
+
+1. K-Means属于判别模型，GMM属于生成模型；
+2. 在超参数选择上，GMM的验证误差和训练误差曲线的走向不一致，方便了超参数的选择。
+3. GMM比K-Means灵活，但代价是有更多参数需要处理。
+
+我比较喜欢先明确目的，再了解异同，最后读定义，当然读者可以自行调整阅读顺序。所以现在再给出K-Means和GMM的思路。
+
+**K-Means**
+
+算法流程：
+
+1. 随机初始化参数 $θ=\{μ_1,...,μ_c\}$ 代表聚类中心初始位置；
+2. 重复直至收敛：
+3. (1)为每个点 $x_i$ 寻找类别归属 $c_i$ ，以欧式距离为例： $c_i=argmin_c‖x_i−μ_c‖^2$ ；
+4. (2)更新聚类中心： $μ_c=\frac{∑_{i:c_i=c}xi}{ of \{i:c_i=c\}}$
+
+**GMM**
+
+核心公式： $p(X|θ)=∑_{i=1}^{c}π_iN(X|μ_i,Σ_i)$
+
+算法流程：
+
+1. 随机初始化各高斯分布的参数 $θ=\{μ_1,...,μ_c,σ_1,...,σ_c,π_1,...,π_c\}$
+2. 重复直至收敛：
+3. (1)为每个点 xi 计算类别 ti 的后验概率 p(ti|xi,θ) ，从而判别各数据点分属的高斯分布（这里由贝叶斯定理推导而来）；
+4. (2)更新各高斯分布的参数： μc=∑ip(ti=c|xi,θ)xi∑ip(ti=c|xi,θ) , σc2=∑ip(ti=c|xi,θ)(xi−μc)2∑ip(ti=c|xi,θ) , πc=∑ip(ti=c|xi,θ)# of datapoints
+
+是不是很相似？都是初始化后循环执行两步计算，有一点数学基础的同学应该能看出来，这就是EM算法的典型形式。
+
+## EM算法
+
+EM算法是一种常用的隐变量(Latent Variable)估计方法，在学习机器学习或者统计学时，无论从哪个角度切入，几乎都躲不开这个EM，毕竟人家是Escape Master（讲个冷笑话助助兴）。
+
+EM算法的地位之所以如此高，有以下几个原因：
+
+1. “简明易懂”，类似于“控制变量法”的思想，将复杂的任务分解成几个相对简单的任务；
+2. 可处理缺失值，同时并不丢失大量信息；
+3. 能够保证算法收敛，虽然通常会收敛到局部最值；
+4. 与一些经典的梯度下降算法相比，没有复杂的参数限制。
+
+EM算法为很多机器学习的算法带来了概率角度的理解，我认为这是非常好的。机器学习算法，尤其是深度学习算法，往往都是黑箱模型，虽然省去了人工的思考与数学推导，但非常难理解和解释，当初做数学建模时，我曾用神经网络混过几次模拟训练，结果被老师委婉地指责。事实上，有部分学者早就开始研究贝叶斯神经网络(Bayesian Neural Network, BNN for short)，贝叶斯方法能够增强神经网络的可解释性，但超出了本文范畴（其实是我不懂），后续再阐述吧。
+
+下面按照思考的顺序解释EM算法的思路：
+
+举一个最简单的场景例子，给一堆莫名其妙的变量 a,b,c,d,e,f ，假设都是连续变量，且两两之间存在一定的相关性，要求找出它们之间的关系。小明说，这还不简单，我做个多变量相关分析就行了。这就是计算机科学的角度，看起来思路非常简单，但实际操作会非常复杂，有 C62=15 条关系等待我们挖掘。下面我们看看，概率角度的理解会不会简单且有趣一些。
+
+首先，引入一个隐变量 T ，那么我们的思路会清晰很多。
+
+![img](Algorithm.assets/v2-430e8c5506f2262ad379803f3ac49961_720w.webp)
+
+原本比较复杂的关系图，引入隐变量 T 后，会简洁很多，但代价是，需要更多的数学工作，且更难处理。这个隐变量是否有很大的实际意义并不关键，当然如果有的话就更好了。
+
+回归到一般情况，对GMM的目标做如下推导 max p(X|θ)=max log p(X|θ)=max ∑i=1Nlog p(xi|θ)通常情况下，我们可能会使用随机梯度下降(SGD)来解决这个目标优化，但EM是今天的主题，优劣前面已经谈过。这里我们引入一个可变下界(variational lower bound)来逼近目标，以求得（局部）最大值，即
+
+p(X|θ)=∑i=1Nlog∑c=13q(ti=c)p(xi,ti=c|θ)q(ti=c)≥∑i=1N∑c=13q(ti=c)logp(xi,ti=c|θ)q(ti=c)
+
+其中最后一步用到了琴生(Jenson)不等式。然后经过一系列的复杂推导（公式太多懒得打），可以得出最大化的条件是 q(ti=c)=p(ti|xi,θ) ，那么EM算法的流程就比较清晰了：
+
+1. 随机初始化各高斯分布的参数 θ={μ1,...,μc,σ1,...,σc,π1,...,πc}
+2. 重复直至收敛：
+3. (1)E-step(更新 q)：qk+1=p(ti|xi,θ) ；
+4. (2)M-step(更新 θ )： θk+1=argmaxθ∑i∑cq(ti=c)logp(xi,ti=c|θ)
 
 
 
 
 
+# Maxflow
+
+
+
+## PushRelabel
+
+参考：[Push-Relabel 最大流 推送重贴标签算法_debug 00的博客-CSDN博客](https://blog.csdn.net/qq_45824536/article/details/111772038)
+
+**原理：**
+
+源点 -> 高度从高到低的盈余点 -> 汇点
+
+*结束标志：*
+
+除了源点、汇点的盈余为0，流汇聚到汇点后，盈余返回到源点）
+
+![image-20221124105402690](Algorithm.assets/image-20221124105402690.png)
+
+
+
+**伪代码：**
+
+```c++
+Push-Relabel( G, s, t )：
+Initialize();
+WHILE 存在盈余点 DO
+    选择最大高度盈余点v；
+    IF ∃𝒆(𝒗,𝒘)满足𝒉(𝒗)=𝒉(𝒘)+𝟏
+    THEN    Push( v, e);
+    ELSE    h(v)++; //Relabel
+ENDWHILE
+ 
+ 
+Push( v, e )：
+IF 𝜶_𝒇 (𝒗)≥𝒓_𝒆 THEN
+    𝚫=𝒓_𝒆;  //饱和推送
+ELSE
+    𝚫=𝜶_𝒇 (𝒗);  //非饱和推送
+在边e上推送𝚫单位的流；
+更新剩余容量𝒓_𝒆  ；
+ 
+ 
+Initialize(  )：
+𝒇=𝟎；
+“反向BFS”设置高度值；
+𝒉(𝒔)=𝒏;
+FOR 𝒗∈𝜹^+ (𝒔) DO
+    在𝒆(𝒔,𝒗)上饱和推送；
+ENDFOR
+ 
+ 
+```
+
+**输入：**
+
+总点数 总边数
+
+源点 汇点
+
+点u 点v u,v容量
+
+**测试用例：**
+
+```bash
+10 25
+1 8
+1 8 5
+1 4 1
+1 6 6
+1 5 1
+2 7 2
+2 9 1
+3 10 1
+3 9 4
+3 2 6
+3 1 4
+3 8 3
+4 8 9
+4 6 4
+4 3 8
+5 4 3
+5 9 9
+6 7 7
+6 10 2
+7 10 3
+7 8 10
+7 5 10
+9 7 6
+9 10 7
+10 4 7
+10 2 2
+```
+
+
+
+```mermaid
+graph TB
+1--5-->8
+1--1-->4
+1--6-->6
+1--1-->5
+2--2-->7
+2--1-->9
+3--1-->10
+3--4-->9
+3--6-->2
+3--4-->1
+3--3-->8
+4--9-->8
+4--4-->6
+4--8-->3
+5--3-->4
+5--9-->9
+6--7-->7
+6--2-->10
+7--3-->10
+7--10-->8
+7--10-->5
+9--6-->7
+9--7-->10
+10--7-->4
+10--2-->2
+```
 
 
 
 
 
+### 代码：
 
 
 
+```c++
+/*-------------------------------------------------
+function:Push-Relabel
+input: 
+pot_number edge_number
+pot_s pot_t
+pot_u pot_v capacity_uv
+... 
+   
+return: 
+Maximum_Flow
+running_time
+-------------------------------------------------*/
+#define _CRT_SECURE_NO_WARNINGS
+#include "time.h"
+#include<stdio.h>
+#include<string.h>
+#include<stdlib.h>
+#define POTMAX 1100        //点数最大值，开辟空间 
+int G[POTMAX][POTMAX];     //容量，剩余网络
+int h[POTMAX];             //高度
+int a[POTMAX];             //盈余
+int n, m;                  //点数，边数
+//队列start
+int stack[POTMAX];int stack_head = 0;int stack_rear = 0;
+int stack_push(int x) {
+	if (stack_rear >= POTMAX)
+		return -1;//满
+	stack[stack_rear++] = x;
+	return 0;
+}
+int stack_pop() {
+//pop 空则输出-1
+	if (stack_rear == stack_head)
+		return -1;
+	return stack[stack_head++];
+} 
+//队列end
+int clear() {
+    //数组等初始化
+	int i, j;
+	for (i = 0; i < POTMAX; i++)
+		for (j = 0; j < POTMAX; j++)
+			G[i][j] = 0;
+	memset(h, 0, sizeof(int) * POTMAX);
+	memset(a, 0, sizeof(int) * POTMAX);
+	memset(tag, 0, sizeof(int) * POTMAX);
+	stack_head = 0;
+	stack_rear = 0;
+	return 0;
+}
+int Initialize(int s,int t) {
+    int tag[POTMAX];
+	//BFS，建立高度函数
+	h[t] = 0;
+	int i;
+	int temp = t;
+	tag[t] = 1;
+	while (temp != -1) {
+		for (i = 1; i <= n; i++) {
+			if (G[i][temp] != 0 && i != temp && tag[i]==0) {
+				h[i] = h[temp] + 1;
+				stack_push(i);
+				tag[i] = 1;
+	
+			}
+		}
+		temp = stack_pop();
+	}
+	//默认n，调整为h max 
+	int max_h = 0;
+	for (i = 1; i <= n; i++) {
+		if (h[i] > max_h)
+			max_h = h[i];
+	}
+	h[s] = max_h;
+	//初始 s->i 的i节点
+	for (i = 1; i <= n; i++) {
+		if (G[s][i] != 0) {
+			a[i] = G[s][i];
+			G[i][s] += G[s][i];
+			G[s][i] = 0;
+		}
+			
+	}
+ 
+	return 0;
+}
+int check(int s,int t) {
+    //查看是否有盈余点，如果有，返回高度最大点，否则-1（s,t不包括）
+	int tag0=0;
+	int i = 1, maxHighPot = t;//h[t]=0
+	for (i = 1; i <= n; i++) {
+		if (a[i] != 0 && h[i] > h[maxHighPot] && i != s && i!=t) {
+				maxHighPot = i;
+				tag0 = 1;
+			
+		}
+	}
+	if (tag0)
+		return maxHighPot;
+	else
+		return -1;
+ 
+}
+int Push(int v, int e) {
+    //推流
+	if (a[v] >= G[v][e]) {
+		a[e] += G[v][e];
+		a[v] -= G[v][e];
+		G[e][v] += G[v][e];
+		G[v][e] = 0;
+	}
+	else {
+		G[v][e] -= a[v];
+		G[e][v] += a[v];
+		a[e] += a[v];
+		a[v] = 0;
+	}
+	return 0;
+}
+int main() {
+	//
+		clock_t start_time, end_time;
+		start_time = clock();   //获取开始执行时间
+	//
+	clear();
+	FILE* fp = NULL;
+	if (!(fp = fopen("1.txt", "r"))) {
+		printf("file error");
+		return 0;
+	}
+	int s, t;
+	fscanf_s(fp, "%d%d", &n, &m);
+	fscanf_s(fp, "%d%d", &s, &t);
+	int i, x, y, z;
+	for (i = 0; i < m; i++) {
+		fscanf_s(fp, "%d%d%d", &x, &y, &z);
+ 
+		G[x][y] = z;
+	}
+	fclose(fp);
+	
+	Initialize(s, t);
+	int maxHighPot = check(s,t);
+	int check_tag;
+	while (maxHighPot!=-1) {
+		check_tag = 0;
+		for (i = 1; i <= n; i++) {
+			if (h[i] + 1 == h[maxHighPot]&&G[maxHighPot][i]>0) {
+				Push(maxHighPot, i);
+				check_tag = 1;
+			}		
+		}
+		if (check_tag == 0)
+			h[maxHighPot]++;
+		maxHighPot = check(s,t);
+		//printf("%d %d\n", a[t], h[maxHighPot]);    //测试
+	}
+ 
+ 
+	printf("%d\n", a[t]);
+	//
+	end_time = clock();     //获取结束时间
+	double Times = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+	printf("%f seconds\n", Times);
+	//
+	return 0;
+}
+```
 
 
 
+## Push Relabel算法
 
 
 
+[PushRelabel 压入与重标记算法 · way-to-algorithm (gitbooks.io)](https://linrongbin16.gitbooks.io/way-to-algorithm/content/docs/GraphTheory/NetworkFlow/PushRelabel/)
+
+### 问题
 
 
 
+用压入与重标记算法求网络G=<V,E>的最大流，G是单源点、单汇点，边的容量都为正整数的网络。
+
+### 定义
 
 
 
+设网络中每个节点都有一个水位高度levellevel，当$c_f(i,j)=c(i,j)−f(i,j)>0$时边$e_{i,j}$仍然可以容纳更多的流，当$c_f(i,j)=0$时称边$e_{i,j}$为饱和边，不能容纳更多的流。
+
+设节点$v_i (v_i∈V∖\{s,t\})$的流入和流出之差为：
+$$
+$$x(i)=inflow_i−outflow_i=\sum_{u \in V}f(u,i) - \sum_{v \in V}f(i,v)
+$$
+
+
+若相邻节点$v_i,v_j$满足$c_f(i,j)>0$，称$v_i,v_j$之间可以容纳额外的流。
+
+### 压入操作
+
+压入操作条件：
+
+(1) 相邻节点$v_i,v_j$的水位满足$level(i)=level(j)+1$（称$v_j$在$v_i$的低位，$v_i$在$v_j$的高位）；
+
+(2) 相邻节点$v_i,v_j$的边的剩余容量满足$c_f(i,j)>0$；
+
+压入操作：像高处的水流向最低洼的位置，对于满足压入操作条件的相邻节点，由节点$v_i$流向节点$v_j$，边$e_{i,j}$的剩余容量更新为：
+$$
+\begin{cases}
+f(i,j) = f(i,j) + \Delta\\
+f(j,i) = f(j,i) - \Delta\\
+x(i) = x(i) + \Delta\\
+x(j) = x(j) - \Delta
+\end{cases}
+$$
+其中$\Delta=min(x(i),c_f(i,j))$。任意节点$v_i$能够流出的最大值为$x(i)$（不能凭空制造流，每个节点必须有流入才能流出），而边$e_{i,j}$能够额外容纳的流为$c_f(i,j)$，因此实际可用的流是两者的最小值。
+
+网络中将源点视作入流无穷大的节点，即有
+$$
+\begin{matrix}
+inflow_s = +\infty \\
+x(s) = +\infty
+\end{matrix}
+$$
+
+
+将汇点视作出流无穷大的节点，即有
+$$
+\begin{matrix}
+outflow_t = -\infty \\
+x(t) = -\infty
+\end{matrix}
+$$
+
+### 重标记操作
+
+重标记操作是调整相邻节点之间的水位高度差的辅助操作，目的是尽可能将更多的流压入汇点。
+
+重标记操作条件：
+
+(1) 节点$v_i$的流入和流出之差满足$x(i)>0$，说明该节点仍然能够制造出流；
+
+(2) 节点$v_i$在可以容纳额外的流的邻节点$v_j$即 ($c_f(i,j)>0$），且水位高度之差满足$level(i) \leq level(j)$；
+
+重标记操作：
+$$
+level(i)=min \{level(j)\}+1
+$$
+
+
+其中$v_j$所有满足重标记条件的$v_i$的邻节点，将$v_i$的水位设置为所有节点中最低的水位加1。
+
+### 解法
+
+初始时设网络中任意两点间的流为0，即$f(i,j)=f(j,i)=0$（其中$v_i,v_j$为相邻节点），可知任意节点$v_i$的流入流出差为：
+$$
+x(i) = \begin{cases}
++ \infty \quad v_i = s\\
+- \infty \quad v_i = t \\
+0 \quad v_i \in V \backslash \{s,t \} 
+\end{cases}
+$$
+对源点$s$进行预压入操作（无视水位）：
+
+
+$$
+x(i)=f(s,i)=c(s,i)
+$$
+其中$v_i$是所有与源点$s$相邻，且满足剩余容量$c_f(s,i)>0$的邻节点。
+
+然后设置网络中节点的水位：
+$$
+level(i)= \begin{cases}
+|V|\quad v_i=s \\
+0 \quad v_i∈V \backslash \{s\}
+\end{cases}
+$$
+遍历网络找到满足压入操作、重标记操作的相邻节点和边，并进行对应操作。重复这两种操作直到无法继续，算法结束。网络的最大流即为汇点$t$的邻节点的出流之和：
+$$
+flow_{max}=\sum_{u∈V}f(u,t)
+$$
+该算法的时间复杂度为$O(|V|^2⋅|E|)$。
 
 
 
+## PushRelabel理解
+
+[【Algorithm】Push-Relabel算法_Anova.YJ的博客-CSDN博客_推送 重贴标签算法](https://blog.csdn.net/weixin_44246009/article/details/115493207)
 
 
 
+![image-20221124171722821](Algorithm.assets/image-20221124171722821.png)
 
 
 
+![image-20221124171754294](Algorithm.assets/image-20221124171754294.png)
 
 
 
+![image-20221124171833441](Algorithm.assets/image-20221124171833441.png)
 
 
 
+![image-20221124171907853](Algorithm.assets/image-20221124171907853.png)
+
+![image-20221124171935061](Algorithm.assets/image-20221124171935061.png)
 
 
 
+![image-20221124171957534](Algorithm.assets/image-20221124171957534.png)
 
 
 
+![image-20221124172044625](Algorithm.assets/image-20221124172044625.png)
 
 
 
+![image-20221124172112177](Algorithm.assets/image-20221124172112177.png)
+
+![image-20221124172158497](Algorithm.assets/image-20221124172158497.png)
+
+![image-20221124172232143](Algorithm.assets/image-20221124172232143.png)
+
+![image-20221124172307278](Algorithm.assets/image-20221124172307278.png)
+
+
+
+- 而Push-Relabel算法有别于这种独立发现管道的形式，它每次循环并不会考察从源点到汇点的整个网络，而只着眼于某个溢出点的邻域。
+- 在初始化函数中，我们将连接源点 s ss 的每条边容量都发挥到最大，显然这是最大流的上界，之后的过程有种水往低处流的直观感受。如果某个结点存在超额流，即该结点溢出，它会尽力将超额流向地处推送，如果邻域内的结点都高于它或与之同高度，则抬高该点，使其超额流能够完成推送。
+- 源点向整个网络推送了不低于最大流量的水流，而后网络中每个结点对自己收到的流量进行调节，最终达到一个平衡状态，网络中现存的水流即为最大流量，超额流全部通过抬高结点高度反推回源点。
+  
+
+## Push Relabel Algorithm Tutorial
+
+[Goldberg Tarjan Push Relabel Algorithm (adrian-haarbach.de)](http://www.adrian-haarbach.de/idp-graph-algorithms/implementation/maxflow-push-relabel/index_en.html)
+
+[Push Relabel Algorithm Tutorial](https://codeforces.com/blog/entry/68494)
+
+实现1
+
+```cpp
+ #include <bits/stdc++.h>
+ 
+using namespace std;
+ 
+typedef long long ll;
+ 
+struct edge{
+    int from,to; ll cap,f;
+};
+ 
+vector<edge> ed;
+vector<vector<int> > adj,hs;
+vector<int> h;vector<ll> ex;
+int N,S,T;
+ 
+void init(int n,int s,int t){
+    N=n;S=s;T=t; // S - source, T - sink
+    h=vector<int>(N); // height
+    ex=vector<ll>(N); // excess
+    adj=vector<vector<int>>(N);
+    hs=vector<vector<int>>(2*N+1); // for finding max height with excess
+}
+ 
+void add_edge(int from,int to,int cap){
+    if(from==to) return;
+    adj[from].push_back(ed.size());
+    ed.push_back({from,to,cap,0});
+    adj[to].push_back(ed.size());
+    ed.push_back({to,from,0,0});
+}
+ 
+void push(int id){
+    int v=ed[id].from,to=ed[id].to;
+    ll fl=min(ex[v],ed[id].cap-ed[id].f);
+    if(to!=S && to!=T && !ex[to] && fl) hs[h[to]].push_back(to);
+    ed[id].f+=fl;
+    ed[id^1].f-=fl;
+    ex[v]-=fl;
+    ex[to]+=fl;
+}
+ 
+int relabel(int v){
+    h[v]=2*N; // Cannot exceed this value
+    for(int id:adj[v])
+        if(ed[id].cap>ed[id].f)
+            h[v]=min(h[v],h[ed[id].to]+1);
+    hs[h[v]].push_back(v);
+    return h[v];
+}
+ 
+ll max_flow(){
+    // initialization and preflow
+    h[S]=N;
+    for(int id:adj[S]){
+        ex[S]+=ed[id].cap;
+        push(id);
+    }
+ 
+    if(hs[0].size())
+    for(int hi=0;hi>=0;){
+        // find a vertex v with ex[v]>0 && max height
+        int v=hs[hi].back();hs[hi].pop_back();
+        while(ex[v] >0){
+            for(int i=0;i<(int)adj[v].size() && ex[v];i++){
+                int id=adj[v][i];edge e=ed[id];
+                if(e.cap-e.f>0 && h[v]==h[e.to]+1)
+                    push(id);
+            }
+            if(ex[v]) hi=relabel(v);
+        }
+        while(hi>=0 && hs[hi].empty()) --hi;
+    }
+    // Calculate flow
+    ll res=0;
+    for(int id:adj[S]) res+=ed[id].f;
+    return res;
+}
+
+int main(){
+    // blah blah
+    init(n,s,t);
+    ll flow=max_flow();
+    return 0;
+}
+```
+
+
+
+实现2
+
+[Maximum flow - Push-relabel algorithm - Algorithms for Competitive Programming (cp-algorithms.com)](https://cp-algorithms.com/graph/push-relabel.html#definitions)
+
+```cpp
+const int inf = 1000000000;
+
+int n;
+vector<vector<int>> capacity, flow;
+vector<int> height, excess, seen;
+queue<int> excess_vertices;
+
+void push(int u, int v)
+{
+    int d = min(excess[u], capacity[u][v] - flow[u][v]);
+    flow[u][v] += d;
+    flow[v][u] -= d;
+    excess[u] -= d;
+    excess[v] += d;
+    if (d && excess[v] == d)
+        excess_vertices.push(v);
+}
+
+void relabel(int u)
+{
+    int d = inf;
+    for (int i = 0; i < n; i++) {
+        if (capacity[u][i] - flow[u][i] > 0)
+            d = min(d, height[i]);
+    }
+    if (d < inf)
+        height[u] = d + 1;
+}
+
+void discharge(int u)
+{
+    while (excess[u] > 0) {
+        if (seen[u] < n) {
+            int v = seen[u];
+            if (capacity[u][v] - flow[u][v] > 0 && height[u] > height[v])
+                push(u, v);
+            else 
+                seen[u]++;
+        } else {
+            relabel(u);
+            seen[u] = 0;
+        }
+    }
+}
+
+int max_flow(int s, int t)
+{
+    height.assign(n, 0);
+    height[s] = n;
+    flow.assign(n, vector<int>(n, 0));
+    excess.assign(n, 0);
+    excess[s] = inf;
+    for (int i = 0; i < n; i++) {
+        if (i != s)
+            push(s, i);
+    }
+    seen.assign(n, 0);
+
+    while (!excess_vertices.empty()) {
+        int u = excess_vertices.front();
+        excess_vertices.pop();
+        if (u != s && u != t)
+            discharge(u);
+    }
+
+    int max_flow = 0;
+    for (int i = 0; i < n; i++)
+        max_flow += flow[i][t];
+    return max_flow;
+}
+```
 
 
 

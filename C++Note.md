@@ -1661,14 +1661,6 @@ ps:关于this指针的深入解释
 
 
 
-
-
-
-
-
-
-
-
 ### cast
 
 c++强制类型转换运算符。
@@ -2425,17 +2417,612 @@ int ThisIsTest(int, int);
 
 
 
+## union介绍
+
+　　共用体，也叫联合体，在一个“联合”内可以定义多种不同的数据类型， 一个被说明为该“联合”类型的变量中，允许装入该“联合”所定义的任何一种数据，这些数据共享同一段内存，以达到节省空间的目的。**union变量所占用的内存长度等于最长的成员的内存长度。**
+
+ **union与struct比较**
+
+先看一个关于struct的例子：
+
+```cpp
+struct student
+{
+     char mark;
+     long num;
+     float score;
+};
+```
+
+其struct的内存结构如下，sizeof(struct student)的值为12bytes。
+
+下面是关于union的例子：
+
+```cpp
+union test
+{
+     char mark;
+     long num;
+     float score;
+};
+```
+
+sizeof(union test)的值为4。因为共用体将一个char类型的mark、一个long类型的num变量和一个float类型的score变量存放在**同一个地址开始的内存单元**中，而char类型和long类型所占的内存字节数是不一样的，但是在union中都是从同一个地址存放的，也就是使用的覆盖技术，这三个变量互相覆盖，而这种使几个不同的变量共占同一段内存的结构，称为“共用体”类型的结构。其union类型的结构如下：
+
+**因union中的所有成员起始地址都是一样的，所以&a.mark、&a.num和&a.score的值都是一样的。**
+
+ 不能如下使用：
+
+```cpp
+union test a;
+printf("%d", a); //错误
+```
+
+由于a的存储区有好几种类型，分别占不同长度的存储区，仅写共用体变量名a，这样使编译器无法确定究竟输出的哪一个成员的值。
+
+```cpp
+printf("%d", a.mark);  //正确
+```
+
+
+
+**测试大小端**
+
+union的一个用法就是可以用来测试CPU是大端模式还是小端模式：
+
+```cpp
+#include <iostream>
+using namespace std;
+
+void checkCPU()
+{
+    union MyUnion{
+        int a;
+        char c;
+    }test;
+    test.a = 1;
+    if (test.c == 1)
+        cout << "little endian" <<endl;
+    else cout << "big endian" <<endl;
+}
+
+int main()
+{
+    checkCPU();
+    return 0;
+}
+```
+
+举例，代码如下：
+
+```cpp
+#include <iostream>
+using namespace std;
+
+union test
+{
+     char mark;
+     long num;
+     float score;
+}a;
+
+int main()
+{
+     // cout<<a<<endl; // wrong
+     a.mark = 'b';
+     cout<<a.mark<<endl; // 输出'b'
+     cout<<a.num<<endl; // 98 字符'b'的ACSII值
+     cout<<a.score<<endl; // 输出错误值
+
+     a.num = 10;
+     cout<<a.mark<<endl; // 输出换行 非常感谢suxin同学的指正
+     cout<<a.num<<endl; // 输出10
+     cout<<a.score<<endl; // 输出错误值
+
+     a.score = 10.0;
+     cout<<a.mark<<endl; // 输出空
+     cout<<a.num<<endl; // 输出错误值
+     cout<<a.score<<endl; // 输出10
+
+     return 0;
+}
+```
+
+**C++中union**
+
+上面总结的union使用法则，在C++中依然适用。如果加入对象呢？
+
+```cpp
+#include <iostream>
+using namespace std;
+
+class CA
+{
+     int m_a;
+};
+
+union Test
+{
+     CA a;
+     double d;
+};
+
+int main()
+{
+     return 0;
+}
+```
+
+上面代码运行没有问题。
+
+　　如果在类CA中**添加了构造函数，或者添加析构函数，就会发现程序会出现错误。**由于union里面的东西共享内存，所以不能定义静态、引用类型的变量。由于在union里也不允许存放带有构造函数、析构函数和复制构造函数等的类的对象，但是可以存放对应的类对象指针。编译器无法保证类的构造函数和析构函数得到正确的调用，由此，就可能出现内存泄漏。所以，在C++中使用union时，尽量保持C语言中使用union的风格，尽量不要让union带有对象。
+
+
+
+## 线程
+
+### CreateThread 创建线程
+
+
+
+线程是进程中的一个实体，是被系统独立调度和分派的基本单位。一个进程可以拥有多个线程，但是一个线程必须有一个进程。线程自己不拥有系统资源，只有运行所必须的一些[数据结构](https://so.csdn.net/so/search?q=数据结构&spm=1001.2101.3001.7020)，但它可以与同属于一个进程的其它线程共享进程所拥有的全部资源，同一个进程中的多个线程可以并发执行。
+
+在C/C++中可以通过CreateThread函数在进程中创建线程，函数的具体格式如下：
+
+D:\Windows Kits\10\Include\10.0.19041.0\um\processthreadsapi.h
+
+```cpp
+WINBASEAPI
+_Ret_maybenull_
+HANDLE
+WINAPI
+CreateThread(
+    _In_opt_ LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    _In_ SIZE_T dwStackSize,
+    _In_ LPTHREAD_START_ROUTINE lpStartAddress,
+    _In_opt_ __drv_aliasesMem LPVOID lpParameter,
+    _In_ DWORD dwCreationFlags,
+    _Out_opt_ LPDWORD lpThreadId
+    );
+```
+
+参数的含义如下：
+```bash
+lpThreadAttrivutes：指向SECURITY_ATTRIBUTES的指针，用于定义新线程的安全属性，一般设置成NULL；
+
+dwStackSize：分配以字节数表示的线程堆栈的大小，默认值是0；
+
+lpStartAddress：指向一个线程函数地址。每个线程都有自己的线程函数，线程函数是线程具体的执行代码；
+
+lpParameter：传递给线程函数的参数；
+
+dwCreationFlags：表示创建线程的运行状态，其中CREATE_SUSPEND表示挂起当前创建的线程，而0表示立即执行当前创建的进程；
+
+lpThreadID：返回新创建的线程的ID编号；
+```
+
+- 第一个参数 `lpThreadAttributes` 表示线程内核对象的安全属性，一般传入NULL表示使用默认设置。
+- 第二个参数 `dwStackSize` 表示线程栈空间大小。传入0表示使用默认大小（1MB）。
+- 第三个参数 `lpStartAddress` 表示新线程所执行的线程函数地址，多个线程可以使用同一个函数地址。
+- 第四个参数 `lpParameter` 是传给线程函数的参数。
+- 第五个参数 `dwCreationFlags` 指定额外的标志来控制线程的创建，为0表示线程创建之后立即就可以进行调度，如果为CREATE_SUSPENDED则表示线程创建后暂停运行，这样它就无法调度，直到调用ResumeThread()。
+- 第六个参数 `lpThreadId` 将返回线程的ID号，传入NULL表示不需要返回该线程ID号。
+
+
+
+如果函数调用成功，则返回新线程的句柄，调用WaitForSingleObject函数等待所创建线程的运行结束。函数的格式如下：
+
+```cpp
+DWORD WaitForSingleObject(
+                          HANDLE hHandle,
+                          DWORD dwMilliseconds
+                         );
+```
+
+参数的含义如下：
+
+```bash
+hHandle：指定对象或时间的句柄；
+dwMilliseconds：等待时间，以毫秒为单位，当超过等待时间时，此函数返回。如果参数设置为0，则该函数立即返回；如果设置成INFINITE，则该函数直到有信号才返回。
+```
+
+一般情况下需要创建多个线程来提高程序的执行效率，但是多个线程同时运行的时候可能调用线程函数，在多个线程同时对一个内存地址进行写入操作，由于CPU时间调度的问题，写入的数据会被多次覆盖，所以要使线程同步。
+
+就是说，当有一个线程对文件进行操作时，其它线程只能等待。可以通过临界区对象实现线程同步。临界区对象是定义在数据段中的一个CRITICAL_SECTION结构，Windows内部使用这个结构记录一些信息，确保同一时间只有一个线程访问改数据段中的数据。
+
+使用临界区的步骤如下：
+
+（1）初始化一个CRITICAL_SECTION结构；在使用临界区对象之前，需要定义全局CRITICAL_SECTION变量，在调用CreateThread函数前调用InitializeCriticalSection函数初始化临界区对象；
+
+（2）申请进入一个临界区；在线程函数中要对保护的数据进行操作前，可以通过调用EnterCriticalSection函数申请进入临界区。由于同一时间内只能有一个线程进入临界区，所以在申请的时候如果有一个线程已经进入临界区，则该函数就会一直等到那个线程执行完临界区代码；
+
+（3）离开临界区；当执行完临界区代码后，需要调用LeaveCriticalSection函数离开临界区；
+
+（4）删除临界区；当不需要临界区时调用DeleteCriticalSection函数将临界区对象删除；
+
+下面的代码创建了5个线程，每个线程在文件中写入10000个“hello”：
+
+```cpp
+#include <stdio.h>
+#include <windows.h>
+#include <tchar.h>
+HANDLE hFile;
+CRITICAL_SECTION cs;//定义临界区全局变量
+//线程函数：在文件中写入10000个hello
+DWORD WINAPI Thread(LPVOID lpParam)
+{
+	long long n = (long long)lpParam;
+	DWORD dwWrite;
+	for (int i = 0;i < 10000;i++)
+	{
+		//进入临界区
+		EnterCriticalSection(&cs);
+		char data[512] = "hello\r\n";
+		//写文件
+		WriteFile(hFile, data, strlen(data), &dwWrite, NULL);
+		//离开临界区
+		LeaveCriticalSection(&cs);
+	}
+	printf("Thread #%d returned successfully\n", n);
+	return 0;
+}
+int main()
+{
+	char *filename = "hack.txt";
+	WCHAR name[20] = { 0 };
+	MultiByteToWideChar(CP_ACP, 0, filename, strlen(filename) + 1, name, sizeof(name) / sizeof(name[0]));
+	//创建文件
+	hFile = CreateFile(filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE)
+	{
+		printf("CreateFile error.\n");
+		return 0;
+	}
+	DWORD ThreadID;
+	HANDLE hThread[5];
+	//初始化临界区
+	InitializeCriticalSection(&cs);
+	for (int i = 0;i < 5;i++)
+	{
+		//创建线程，并调用Thread写文件
+		hThread[i] = CreateThread(NULL, 0, Thread, (LPVOID)(i + 1), 0, &ThreadID);
+		printf("Thread #%d has been created successfully.\n", i + 1);
+	}
+	//等待所有进程结束
+	WaitForMultipleObjects(5, hThread, TRUE, INFINITE);
+	//删除临界区
+	DeleteCriticalSection(&cs);
+	//关闭文件句柄
+	CloseHandle(hFile);
+	return 0;
+}
+```
+
+![image-20221124153123681](C++Note.assets/image-20221124153123681.png)
+
+
+
+**测试程序2**
+
+```cpp
+
+
+/* 创建第一个线程。主进程结束，则撤销线程。 */
+
+#include<Windows.h>
+#include<stdio.h>
+
+DWORD WINAPI ThreadFunc(LPVOID);
+
+int main()
+{
+	HANDLE hThread;
+	DWORD  threadId;
+
+	hThread = CreateThread(NULL, 0,	ThreadFunc, 0, 0, &threadId); // 创建线程
+	printf("我是主线程， pid = %d\n", GetCurrentThreadId());  //输出主线程pid
+	Sleep(2000);
+}
+
+DWORD WINAPI ThreadFunc(LPVOID p)
+{	
+	printf("我是子线程， pid = %d\n", GetCurrentThreadId());   //输出子线程pid
+	return 0;
+}
+```
+
+运行输出：
+
+```bash
+我是主线程， pid = 7344
+我是子线程， pid = 21108
+
+--------------------------------
+Process exited after 2.053 seconds with return value 0
+
+Press ANY key to exit...
+```
 
 
 
 
 
+### 更安全的创建线程方式_beginthreadex()
+
+[更安全的创建线程方式_beginthreadex()](https://www.cnblogs.com/ay-a/p/9135652.html)
+
+CreateThread()函数是Windows提供的API接口，在C/C++语言另有一个创建线程的函数_beginthreadex()，我们应该尽量使用_beginthreadex()来代替使用CreateThread()，因为它比CreateThread()更安全。
+
+其原因首先要从标准C运行库与多线程的矛盾说起，标准C运行库在1970年被实现了，由于当时没任何一个操作系统提供对多线程的支持。因此编写标准C运行库的程序员根本没考虑多线程程序使用标准C运行库的情况。比如标准C运行库的全局变量errno。很多运行库中的函数在出错时会将错误代号赋值给这个全局变量，这样可以方便调试。
+
+但如果有这样的一个代码片段：
+
+```cpp
+if (system("notepad.exe readme.txt") == -1)  
+{  
+    switch(errno)  
+    {  
+        ...//错误处理代码  
+    }  
+}  
+```
+
+假设某个线程A在执行上面的代码，该线程在调用system()之后且尚未调用switch()语句时另外一个线程B启动了，这个线程B也调用了标准C运行库的函数，不幸的是这个函数执行出错了并将错误代号写入全局变量errno中。这样线程A一旦开始执行switch()语句时，它将访问一个被B线程改动了的errno。这种情况必须要加以避免！因为不单单是这一个变量会出问题，其它像strerror()、strtok()、tmpnam()、gmtime()、asctime()等函数也会遇到这种由多个线程访问修改导致的数据覆盖问题。
+
+为了解决这个问题，Windows操作系统提供了这样的一种解决方案——每个线程都将拥有自己专用的一块内存区域来供标准C运行库中所有有需要的函数使用。而且这块内存区域的创建就是由C/C++运行库函数_beginthreadex()来负责的。
+
+_beginthreadex()函数在创建新线程时会分配并初始化一个_tiddata块。这个_tiddata块自然是用来存放一些需要线程独享的数据。新线程运行时会首先将_tiddata块与自己进一步关联起来。然后新线程调用标准C运行库函数如strtok()时就会先取得_tiddata块的地址再将需要保护的数据存入_tiddata块中。这样每个线程就只会访问和修改自己的数据而不会去篡改其它线程的数据了。因此，如果在代码中有使用标准C运行库中的函数时，尽量使用`_beginthreadex()`来代替CreateThread()。
+
+**实例**
+
+下面的例子使用_beginthreadex()来创建线程。
+
+```cpp
+#include<process.h>
+#include<windows.h>
+#include<iostream>
+using namespace std;
+
+unsigned int __stdcall ThreadFun(PVOID pM)
+{
+	printf("线程ID 为 %d 的子线程输出： Hello World\n", GetCurrentThreadId());
+	return 0;
+}
+
+
+int main()
+{
+	const int THREAD_NUM = 5;
+	HANDLE handle[THREAD_NUM];
+	for (int i = 0; i < THREAD_NUM; i++)
+		handle[i] = (HANDLE)_beginthreadex(NULL, 0, ThreadFun, NULL, 0, NULL);
+	WaitForMultipleObjects(THREAD_NUM, handle, TRUE, INFINITE);
+	return 0;
+}
+
+```
+
+运行输出：
+
+```bash
+线程ID 为 27396 的子线程输出： Hello World
+线程ID 为 25560 的子线程输出： Hello World
+线程ID 为 27432 的子线程输出： Hello World
+线程ID 为 7504 的子线程输出： Hello World
+线程ID 为 26896 的子线程输出： Hello World
+
+--------------------------------
+Process exited after 0.1729 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+
+
+### Spinlock 自旋锁
+
+自旋锁与互斥锁有点类似，只是自旋锁不会引起调用者睡眠，如果自旋锁已经被别的执行单元保持，调用者就一直循环在那里看是否该自旋锁的保持者已经释放了锁，"自旋"一词就是因此而得名。
+
+　　由于自旋锁使用者一般保持锁时间非常短，因此选择自旋而不是睡眠是非常必要的，自旋锁的效率远高于互斥锁。
+
+[spinlock前世今生 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/133445693)
 
 
 
 
 
+## 进程
 
+
+
+
+
+## 并行
+
+
+
+## 并发
+
+
+
+## atomic原子操作
+
+### atomic概述
+
+所谓[原子操作](https://so.csdn.net/so/search?q=原子操作&spm=1001.2101.3001.7020)，就是多线程程序中“最小的且不可并行化的”操作。对于在多个线程间共享的一个资源而言，这意味着同一时刻，多个线程中有且仅有一个线程在对这个资源进行操作，即互斥访问。
+
+C++ 11 新增atomic可以实现原子操作
+
+### 非原子操作
+
+
+
+```cpp
+#include <thread>
+#include <atomic>
+#include <iostream>
+using namespace std;
+
+int i = 0;
+const int maxCnt = 1000000;
+void mythread()
+{
+    for (int j = 0; j < maxCnt; j++)
+        i++;  //线程同时操作变量
+}
+
+int main()
+{
+    auto begin = chrono::high_resolution_clock::now();
+    thread t1(mythread);
+    thread t2(mythread);
+    t1.join();
+    t2.join();
+    auto end = chrono::high_resolution_clock::now();
+    cout << "i=" << i << endl;
+    cout << "time: " << chrono::duration_cast<chrono::microseconds>(end - begin).count() * 1e-6 << "s" << endl; //秒计时
+}
+```
+
+运行输出：
+
+```bash
+i=1020827
+time: 0.007223s
+
+--------------------------------
+Process exited after 0.05536 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+测试结果：发现结果并不是2000000，两个线程同时对共享资源操作会出问题
+
+问题分析：以下是i++反汇编代码
+
+![image-20221125000032345](C++Note.assets/image-20221125000032345.png)
+
+
+
+i++这一条程序在计算机中是分几个机器指令来执行的，先把i值赋值给eax寄存器，eax寄存器自加1，然后再把eax寄存器值赋值回i，如果在指令执行过程中发生了线程调度，那么这一套完整的i++指令操作被打断，会发生结果错乱。
+
+举例子：
+
+![image-20221125000247759](C++Note.assets/image-20221125000247759.png)
+
+
+
+从图上可知，EAX寄存器进行了两次自加操作，但实际上i的值只加了1
+
+### 加锁
+
+
+
+```cpp
+#include <thread>
+#include <atomic>
+#include <iostream>
+#include<mutex>
+using namespace std;
+
+int i = 0;
+const int maxCnt = 1000000;
+mutex mut;
+void mythread()
+{
+    for (int j = 0; j < maxCnt; j++)
+    {
+        mut.lock();    //加锁操作
+        i++;
+        mut.unlock();
+    }
+}
+
+int main()
+{
+
+    auto begin = chrono::high_resolution_clock::now();
+    thread t1(mythread);
+    thread t2(mythread);
+    t1.join();
+    t2.join();
+    auto end = chrono::high_resolution_clock::now();
+    cout << "i=" << i << endl;
+    cout << "time: " << chrono::duration_cast<chrono::microseconds>(end - begin).count() * 1e-6 << "s" << endl; //秒计时
+}
+```
+
+运行结果：
+
+```bash
+i=2000000
+time: 0.047453s
+
+--------------------------------
+Process exited after 0.07993 seconds with return value 0
+
+Press ANY key to exit...
+```
+
+测试结果如图：虽然保证了结果正确，但耗时也增加了
+
+### atomic代码
+
+使用方法：
+
+atomic<int> i;
+1
+对应i++汇编代码如下：
+发现调用的atomic类方法operator++，继续追踪。
+只需关注红笔标注的代码，lock xadd 指令就是计算机硬件底层提供的原子性支持。
+
+代码实现：
+
+```cpp
+#include <thread>
+#include <atomic>
+#include <iostream>
+#include<mutex>
+using namespace std;
+
+atomic<int> i;
+//atomic_int32_t i;  两种写法
+const int maxCnt = 1000000;
+void mythread()
+{
+    for (int j = 0; j < maxCnt; j++)
+    {
+        i++;
+    }
+}
+
+int main()
+{
+
+    auto begin = chrono::high_resolution_clock::now();
+    thread t1(mythread);
+    thread t2(mythread);
+    t1.join();
+    t2.join();
+    auto end = chrono::high_resolution_clock::now();
+    cout << "i=" << i << endl;
+    cout << "time: " << chrono::duration_cast<chrono::microseconds>(end - begin).count() * 1e-6 << "s" << endl; //秒计时
+}
+```
+
+运行结果：
+
+测试结果如下：atomic保证原子性操作的同时，耗时也较低
+
+```bash
+i=2000000
+time: 0.020719s
+
+--------------------------------
+Process exited after 0.05644 seconds with return value 0
+
+Press ANY key to exit...
+```
 
 
 

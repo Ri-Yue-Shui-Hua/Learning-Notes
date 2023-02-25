@@ -3531,3 +3531,146 @@ CRF是一种判别式概率模型，是随机场的一种，结合了最大熵�
 
 
 
+
+
+
+
+# onnxruntime
+
+
+
+[Tutorial — ONNX Runtime 1.14.0 documentation](https://onnxruntime.ai/docs/api/python/tutorial.html)
+
+## 官网python api
+
+
+
+# Tutorial
+
+*ONNX Runtime* provides an easy way to run machine learned models with high performance on CPU or GPU without dependencies on the training framework. Machine learning frameworks are usually optimized for batch training rather than for prediction, which is a more common scenario in applications, sites, and services. At a high level, you can:
+
+1. Train a model using your favorite framework.
+2. Convert or export the model into ONNX format. See [ONNX Tutorials](https://github.com/onnx/tutorials) for more details.
+3. Load and run the model using *ONNX Runtime*.
+
+In this tutorial, we will briefly create a pipeline with *scikit-learn*, convert it into ONNX format and run the first predictions.
+
+
+
+## Step 1: Train a model using your favorite framework
+
+We’ll use the famous iris datasets.
+
+<<<
+
+```python
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+iris = load_iris()
+X, y = iris.data, iris.target
+X_train, X_test, y_train, y_test = train_test_split(X, y)
+
+from sklearn.linear_model import LogisticRegression
+clr = LogisticRegression()
+clr.fit(X_train, y_train)
+print(clr)
+```
+
+\>>>
+
+```bash
+    /home/runner/.local/lib/python3.10/site-packages/sklearn/linear_model/_logistic.py:444: ConvergenceWarning: lbfgs failed to converge (status=1):
+    STOP: TOTAL NO. of ITERATIONS REACHED LIMIT.
+    
+    Increase the number of iterations (max_iter) or scale the data as shown in:
+        https://scikit-learn.org/stable/modules/preprocessing.html
+    Please also refer to the documentation for alternative solver options:
+        https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+      n_iter_i = _check_optimize_result(
+    LogisticRegression()
+```
+
+## Step 2: Convert or export the model into ONNX format
+
+[ONNX](https://github.com/onnx/onnx) is a format to describe the machine learned model. It defines a set of commonly used operators to compose models. There are [tools](https://github.com/onnx/tutorials) to convert other model formats into ONNX. Here we will use [ONNXMLTools](https://github.com/onnx/onnxmltools).
+
+<<<
+
+```python
+from skl2onnx import convert_sklearn
+from skl2onnx.common.data_types import FloatTensorType
+
+initial_type = [('float_input', FloatTensorType([None, 4]))]
+onx = convert_sklearn(clr, initial_types=initial_type)
+with open("logreg_iris.onnx", "wb") as f:
+    f.write(onx.SerializeToString())
+```
+
+\>>>
+
+```
+
+```
+
+## Step 3: Load and run the model using ONNX Runtime
+
+We will use *ONNX Runtime* to compute the predictions for this machine learning model.
+
+<<<
+
+```python
+import numpy
+import onnxruntime as rt
+
+sess = rt.InferenceSession(
+    "logreg_iris.onnx", providers=rt.get_available_providers())
+input_name = sess.get_inputs()[0].name
+pred_onx = sess.run(None, {input_name: X_test.astype(numpy.float32)})[0]
+print(pred_onx)
+```
+
+\>>>
+
+```bash
+    [0 0 2 0 1 0 2 2 2 2 0 2 1 0 2 0 0 2 1 1 2 1 2 1 1 2 2 2 1 2 1 1 0 2 0 1 0
+     2]
+```
+
+The code can be changed to get one specific output by specifying its name into a list.
+
+<<<
+
+```python
+import numpy
+import onnxruntime as rt
+
+sess = rt.InferenceSession(
+    "logreg_iris.onnx", providers=rt.get_available_providers())
+input_name = sess.get_inputs()[0].name
+label_name = sess.get_outputs()[0].name
+pred_onx = sess.run(
+    [label_name], {input_name: X_test.astype(numpy.float32)})[0]
+print(pred_onx)
+```
+
+\>>>
+
+```bash
+    [0 0 2 0 1 0 2 2 2 2 0 2 1 0 2 0 0 2 1 1 2 1 2 1 1 2 2 2 1 2 1 1 0 2 0 1 0
+     2]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

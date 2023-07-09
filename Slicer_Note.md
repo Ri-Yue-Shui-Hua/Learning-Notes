@@ -124,7 +124,60 @@ for viewNode in viewNodes:
 
 
 
+## 3D slicer简介
 
+从功能层面，它提供非常丰富的交互和可视化界面，你可以用它导入医学影像，然后进行影像的分割、重建、配准、标记点选择、测量等等操作。它本身提供了非常多的模块，比如优秀的配准模块、齐全的交互分割和重建模块、图像的重采样、裁剪、滤波等各种操作。
+
+如果自带的功能满足不了你的需求，还可以安装插件，如下图插件平台有上百个开源插件，支持各种高级处理；如果仍然找不到你需求的内容，那么你还可以自己写插件，满足自己的特定需求。
+
+![image-20230708101635301](Slicer_Note.assets/image-20230708101635301.png)
+
+从软件的架构层面，它是一个具有优秀架构的软件平台。它的底层基于ITK、VTK和CTK，界面基于QT，都是优秀的开源软件.
+
+- ITK提供丰富的图像分割和配准等大量的医学图像处理算法；
+- VTK则是一种基于opengl的渲染引擎。
+- CTK为支持生物医学图像计算的通用公共包。
+
+![image-20230708103002345](Slicer_Note.assets/image-20230708103002345.png)
+
+
+
+下图为slicer的软件架构图：
+
+![image-20230708103030846](Slicer_Note.assets/image-20230708103030846.png)
+
+
+
+![image-20230708103050746](Slicer_Note.assets/image-20230708103050746.png)
+
+### slicer的可扩展性
+
+有人称slicer是医学影像的IDE，之所以这么说是因为，如果你会编程，你完全可以通过编程，完全自定义你想要的数据处理流程，做任何医学图像的分析处理，slicer负责读取数据给你作为输入，以及将数据可视化给你，当然它还提供了大量的基础图像处理模块供你使用。
+
+实现以上功能，一方面可以通过slicer内置的python终端实现，通过python，可以将slicer中的影响以numpy格式数组，进行任何你想做的处理；另一方面你可以自己编写插件，slicer支持的插件有多种类型，可以对它的功能进行无限扩展。
+
+目前slicer支持一下几种插件类型：
+
+- Slicer Libs - Slicer Base
+- Built in modules
+- **C++ loadable modules**：C++编译生成动态链接库
+- **CLI modules**:
+- **Scripted modules**:如python脚本，最简单的方式
+- Daemon
+
+加粗的三种是我们可以作为扩展比较常用的三种插件形式。
+
+![image-20230708103224112](Slicer_Note.assets/image-20230708103224112.png)
+
+
+
+对于c++ loadable module，我们可以通过修改源代码对一些公开的extention进行修改后重新编译并加载到slicer中，具体的流程如下：
+
+![image-20230708103310750](Slicer_Note.assets/image-20230708103310750.png)
+
+slicer还支持一些用户甚至企业对它进行改造后，形成一个新的自定义的软件应用，或者是科研合作平台软件。因为slicer是完全免费的（遵循BSD协议），且支持商业使用。这一部分可以参考：[SlicerCAT: Creating custom applications based on 3D Slicer - Kitware Blog](https://link.zhihu.com/?target=https%3A//blog.kitware.com/slicercat-creating-custom-applications-based-on-3d-slicer/)
+
+参考：[开源医学影像分析平台--3D Slicer - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/401619399?utm_id=0)
 
 
 

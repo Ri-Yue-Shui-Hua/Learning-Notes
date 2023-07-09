@@ -602,3 +602,142 @@ print(command_result)
 
 
 参考 [Documentation/Nightly/Developers/Python scripting - Slicer Wiki](https://www.slicer.org/wiki/Documentation/Nightly/Developers/Python_scripting)
+
+
+
+# Slicer文档
+
+参考：[Welcome to 3D Slicer’s documentation! — 3D Slicer documentation](https://slicer.readthedocs.io/en/latest/)
+
+## 欢迎来到3D Slicer的文档!
+
+
+
+对于较旧的Slicer文档(4.10及更早版本)，参考 [3D Slicer wiki](https://www.slicer.org/wiki/Documentation/4.10).
+
+- [About 3D Slicer 关于3D Slicer](https://slicer.readthedocs.io/en/latest/user_guide/about.html)
+
+- - [What is 3D Slicer?  什么是3D Slicer](https://slicer.readthedocs.io/en/latest/user_guide/about.html#what-is-3d-slicer)
+  - [License 许可](https://slicer.readthedocs.io/en/latest/user_guide/about.html#license)
+  - [How to cite 怎样去引用](https://slicer.readthedocs.io/en/latest/user_guide/about.html#how-to-cite)
+  - [The 3D Slicer name and logo 3D Slicer的名称和标志](https://slicer.readthedocs.io/en/latest/user_guide/about.html#the-3d-slicer-name-and-logo)
+  - [Acknowledgments 致谢](https://slicer.readthedocs.io/en/latest/user_guide/about.html#acknowledgments)
+  - [Commercial Use 商业应用](https://slicer.readthedocs.io/en/latest/user_guide/about.html#commercial-use)
+  - [Contact us 联系我们](https://slicer.readthedocs.io/en/latest/user_guide/about.html#contact-us)
+
+- Getting Started
+  - [System requirements 系统需求](https://slicer.readthedocs.io/en/latest/user_guide/getting_started.html#system-requirements)
+  - [Installing 3D Slicer 安装3D Slicer](https://slicer.readthedocs.io/en/latest/user_guide/getting_started.html#installing-3d-slicer)
+  - [Using Slicer 使用Slicer](https://slicer.readthedocs.io/en/latest/user_guide/getting_started.html#using-slicer)
+  - [Glossary 术语表](https://slicer.readthedocs.io/en/latest/user_guide/getting_started.html#glossary)
+
+- Get Help
+  - [I need help in using Slicer 在使用Slicer中我需要帮助](https://slicer.readthedocs.io/en/latest/user_guide/get_help.html#i-need-help-in-using-slicer)
+  - [I want to report a problem 我想反馈问题](https://slicer.readthedocs.io/en/latest/user_guide/get_help.html#i-want-to-report-a-problem)
+  - [I would like to request enhancement or new feature 我想要求增强或新功能](https://slicer.readthedocs.io/en/latest/user_guide/get_help.html#i-would-like-to-request-enhancement-or-new-feature)
+  - [I would like to let the Slicer community know, how Slicer helped me in my research 我想让Slicer社区知道，Slicer是怎样在我的研究中帮助我的](https://slicer.readthedocs.io/en/latest/user_guide/get_help.html#i-would-like-to-let-the-slicer-community-know-how-slicer-helped-me-in-my-research)
+  - [Troubleshooting 解决问题](https://slicer.readthedocs.io/en/latest/user_guide/get_help.html#troubleshooting)
+- User Interface
+  - [Application overview 应用程序概述](https://slicer.readthedocs.io/en/latest/user_guide/user_interface.html#application-overview)
+  - [Review loaded data 查看加载的数据](https://slicer.readthedocs.io/en/latest/user_guide/user_interface.html#review-loaded-data)
+  - [Interacting with views 与视图交互](https://slicer.readthedocs.io/en/latest/user_guide/user_interface.html#interacting-with-views)
+  - [Mouse & Keyboard Shortcuts 鼠标与键盘快捷键](https://slicer.readthedocs.io/en/latest/user_guide/user_interface.html#mouse-keyboard-shortcuts)
+- Data Loading and Saving
+  - [DICOM data DICOM数据](https://slicer.readthedocs.io/en/latest/user_guide/data_loading_and_saving.html#dicom-data)
+  - [Non-DICOM data 非DICOM数据](https://slicer.readthedocs.io/en/latest/user_guide/data_loading_and_saving.html#non-dicom-data)
+  - [Supported Data Formats 支持的数据类型](https://slicer.readthedocs.io/en/latest/user_guide/data_loading_and_saving.html#supported-data-formats)
+- Image Segmentation
+  - [Basic concepts 基本概念](https://slicer.readthedocs.io/en/latest/user_guide/image_segmentation.html#basic-concepts)
+  - [Segmentation modules 分割模块](https://slicer.readthedocs.io/en/latest/user_guide/image_segmentation.html#segmentation-modules)
+  - [Tutorials 教程](https://slicer.readthedocs.io/en/latest/user_guide/image_segmentation.html#tutorials)
+- Registration
+  - [Manual registration 手动配准](https://slicer.readthedocs.io/en/latest/user_guide/registration.html#manual-registration)
+  - [Semi-automatic registration 半自动配准](https://slicer.readthedocs.io/en/latest/user_guide/registration.html#semi-automatic-registration)
+  - [Automatic image registration 自动图像配准](https://slicer.readthedocs.io/en/latest/user_guide/registration.html#automatic-image-registration)
+  - [Segmentation and binary image registration 分割与二值图像配准](https://slicer.readthedocs.io/en/latest/user_guide/registration.html#segmentation-and-binary-image-registration)
+  - [Model registration 模型配准](https://slicer.readthedocs.io/en/latest/user_guide/registration.html#model-registration)
+  - [More information 更多信息](https://slicer.readthedocs.io/en/latest/user_guide/registration.html#more-information)
+- Modules
+  - [Data](https://slicer.readthedocs.io/en/latest/user_guide/modules/data.html)
+  - [DICOM](https://slicer.readthedocs.io/en/latest/user_guide/modules/dicom.html)
+  - [Markups](https://slicer.readthedocs.io/en/latest/user_guide/modules/markups.html)
+  - [Models](https://slicer.readthedocs.io/en/latest/user_guide/modules/models.html)
+  - [Scene Views](https://slicer.readthedocs.io/en/latest/user_guide/modules/sceneviews.html)
+  - [Segmentations](https://slicer.readthedocs.io/en/latest/user_guide/modules/segmentations.html)
+  - [Segment editor](https://slicer.readthedocs.io/en/latest/user_guide/modules/segmenteditor.html)
+  - [Welcome](https://slicer.readthedocs.io/en/latest/user_guide/modules/slicerwelcome.html)
+  - [Transforms](https://slicer.readthedocs.io/en/latest/user_guide/modules/transforms.html)
+  - [View Controllers](https://slicer.readthedocs.io/en/latest/user_guide/modules/viewcontrollers.html)
+  - [Volume rendering](https://slicer.readthedocs.io/en/latest/user_guide/modules/volumerendering.html)
+  - [Volumes](https://slicer.readthedocs.io/en/latest/user_guide/modules/volumes.html)
+  - [Informatics](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#informatics)
+  - [Registration](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#registration)
+  - [Segmentation](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#segmentation)
+  - [Quantification](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#quantification)
+  - [Sequences](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#sequences)
+  - [Diffusion](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#diffusion)
+  - [Filtering](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#filtering)
+  - [Utilities](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#utilities)
+  - [Surface Models](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#surface-models)
+  - [Converters](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#converters)
+  - [Developer Tools](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#developer-tools)
+  - [Testing](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#testing)
+  - [Legacy and retired modules](https://slicer.readthedocs.io/en/latest/user_guide/modules/index.html#legacy-and-retired-modules)
+- Extensions Manager
+  - [Overview](https://slicer.readthedocs.io/en/latest/user_guide/extensions_manager.html#overview)
+  - [How to](https://slicer.readthedocs.io/en/latest/user_guide/extensions_manager.html#how-to)
+  - [Troubleshooting](https://slicer.readthedocs.io/en/latest/user_guide/extensions_manager.html#troubleshooting)
+  - [Extensions settings](https://slicer.readthedocs.io/en/latest/user_guide/extensions_manager.html#extensions-settings)
+- Application settings
+  - [Editing application settings](https://slicer.readthedocs.io/en/latest/user_guide/settings.html#editing-application-settings)
+  - [Information for Advanced Users](https://slicer.readthedocs.io/en/latest/user_guide/settings.html#information-for-advanced-users)
+- Developer Guide
+  - [Slicer API](https://slicer.readthedocs.io/en/latest/developer_guide/api.html)
+  - [MRML Overview](https://slicer.readthedocs.io/en/latest/developer_guide/mrml_overview.html)
+  - [Module Overview](https://slicer.readthedocs.io/en/latest/developer_guide/module_overview.html)
+  - [Parameter Nodes](https://slicer.readthedocs.io/en/latest/developer_guide/parameter_nodes/index.html)
+  - [Modules API](https://slicer.readthedocs.io/en/latest/developer_guide/modules/index.html)
+  - [Extensions](https://slicer.readthedocs.io/en/latest/developer_guide/extensions.html)
+  - [Python FAQ](https://slicer.readthedocs.io/en/latest/developer_guide/python_faq.html)
+  - [Script repository](https://slicer.readthedocs.io/en/latest/developer_guide/script_repository.html)
+  - [Build Instructions](https://slicer.readthedocs.io/en/latest/developer_guide/build_instructions/index.html)
+  - [Debugging](https://slicer.readthedocs.io/en/latest/developer_guide/debugging/index.html)
+  - [Contributing to Slicer](https://slicer.readthedocs.io/en/latest/developer_guide/contributing.html)
+  - [Style Guide](https://slicer.readthedocs.io/en/latest/developer_guide/style_guide.html)
+  - [Advanced Topics](https://slicer.readthedocs.io/en/latest/developer_guide/advanced_topics.html)
+  - [Credits](https://slicer.readthedocs.io/en/latest/developer_guide/authors.html)
+
+## 索引和表
+
+- [Index](https://slicer.readthedocs.io/en/latest/genindex.html)
+- [Module Index](https://slicer.readthedocs.io/en/latest/py-modindex.html)
+- [Search Page](https://slicer.readthedocs.io/en/latest/search.html)
+
+
+
+
+
+
+
+
+
+参考：[Welcome to 3D Slicer’s documentation! — 3D Slicer documentation](https://slicer.readthedocs.io/en/latest/)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

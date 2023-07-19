@@ -3475,7 +3475,74 @@ Landmark-free Statistical Shape Modeling via Neural Flow Deformations
 
 
 
+# 各种Loss 函数
 
+## Focal Loss
+
+### 背景
+
+Focal loss是最初由何恺明提出的，最初用于图像领域解决数据不平衡造成的模型性能问题。本文试图从交叉熵损失函数出发，分析数据不平衡问题，focal loss与交叉熵损失函数的对比，给出focal loss有效性的解释。
+
+### 交叉熵损失函数
+
+$$
+Loss = L(y, \hat{p})=-y \log(\hat{p})-(1-y)\log(1-\hat{p})
+$$
+
+
+
+其中$\hat{p}$ 为预测概率大小。
+
+y为label，在二分类中对应0，1。
+$$
+L(y, \hat{p})= \begin{cases}
+-\log(\hat{p}),& if\ y = 1\\
+-\log(1-\hat{p}),& if\ y = 0
+\end{cases}
+\tag{1}
+$$
+
+### 样本不均衡问题
+
+对于所有样本，损失函数为：
+$$
+L=\frac{1}{N}\sum_{i=1}^{N}l(y_i, \hat{p_i})
+$$
+
+
+对于二分类问题，损失函数可以写为：
+$$
+L=\frac{1}{N}\bigg(\sum_{y_i=1}^{m}-\log( \hat{p_i})+\sum_{y_i=0}^n-\log(1-\hat{p}) \bigg)
+$$
+
+
+其中m为正样本个数，n为负样本个数，N为样本总数，m+n=N。
+
+当样本分布失衡时，在损失函数L的分布也会发生倾斜，如m<<n时，负样本就会在损失函数占据主导地位。由于损失函数的倾斜，模型训练过程中会倾向于样本多的类别，造成模型对少样本类别的性能较差。
+
+### 平衡交叉熵函数(balanced cross entropy)
+
+基于样本非平衡造成的损失函数倾斜，一个直观的做法就是在损失函数中添加权重因子，提高少数类别在损失函数中的权重，平衡损失函数的分布。如在上述二分类问题中，添加权重参数 $\alpha \in [0,1]$ 和 $1-\alpha$
+$$
+L=\frac{1}{N}\bigg(\sum_{y_i=1}^{m}-\alpha \log( \hat{p_i})+\sum_{y_i=0}^n-(1-\alpha)\log(1-\hat{p}) \bigg)
+$$
+
+
+其中 $\frac{\alpha}{1-\alpha}=\frac{n}{m}$ ，即权重的大小根据正负样本的分布进行设置。
+
+### focal loss
+
+focal loss也是针对样本不均衡问题，从loss角度提供的另外一种解决方法。
+
+focal loss的具体形式为：
+$$
+L_{fl}=
+$$
+
+
+
+
+参考：[focal loss 通俗讲解 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/266023273)
 
 
 

@@ -3536,8 +3536,52 @@ focal loss也是针对样本不均衡问题，从loss角度提供的另外一种
 
 focal loss的具体形式为：
 $$
-L_{fl}=
+L_{fl}=\begin{cases}
+-(1-\hat{p})^{\gamma}\log(\hat{p})&if \ y=1 \\
+-\hat{p}^{\gamma}\log(1-\hat{p}) & if \ y=0
+\end{cases} \tag{2}
 $$
+
+令
+$$
+p_t = \begin{cases}
+\hat{p} & if \ y = 1 \\
+1-\hat{p} & otherwise
+\end{cases}
+$$
+将focal loss表达式（2）统一为一个表达式：
+$$
+L_{fl}=-(1-p_t)^{\gamma}\log(p_t) \tag{3}
+$$
+同理可将交叉熵表达式（1）统一为一个表达式：
+$$
+L_{ce}=-\log(p_t) \tag{4}
+$$
+$p_t$ 反映了与ground truth即类别y的接近程度，$p_t$ 越大说明越接近类别y，即分类越准确。
+
+$\gamma > 0$ 为可调节因子。
+
+对比表达式（3）和（4），focal loss相比交叉熵多了一个modulating factor即$(1-p_t)^{\gamma}$ 。对于分类准确的样本$p_t \rightarrow 1$，momdulating factor趋近于0。对于分类不准确的样本$1-p_t \rightarrow 1$，modulating factoor趋近于1。即相比交叉熵损失，focal loss对分类不准确的样本，损失没有改变，对于分类准确的样本，损失会表笑。整体而言，相当于增加了分类不准确样本在损失函数中的权重。
+
+$p_t$ 反映了分类的难易程度，$p_t$ 越大，说明分类的置信度越高，代表样本越易分；$p_t$ 越小，分类置信度月底，代表样本越难分。因此focal loss相当于增加了难分样本在损失函数中的权重，使得损失函数倾向于难分的样本，有助于提高难分样本的准确度。focal loss与交叉熵的对比，可见下图：
+
+
+
+![image-20230723223138649](DeepLearning.assets/image-20230723223138649.png)
+
+### focal loss vs balanced cross entropy
+
+focal loss相比balanced cross entropy而言，二者都是试图解决样本不平衡带来的模型训练问题，后者从样本分布角度对损失函数添加权重因子，前者从样本分类难易程度出发，使loss聚焦于难分样本。
+
+### focal loss为什么有效
+
+focal loss从样本难易分类角度出发，解决样本非平衡带来的模型训练问题。
+
+相信很多人会在这里有一个疑问，样本难易分类角度怎么能够解决样本非平衡的问题，直觉上来讲样本非平衡造成的问题就是样本数少的类别分类难度较高。因此从样本难易分类角度出发，使得loss聚焦于难分样本，解决了样本少的类别分类准确率不高的问题，当然难分样本不限于样本少的类别，也就是focal loss不仅仅解决了样本非平衡的问题，同样有助于模型的整体性能提高。
+
+要想使模型训练过程中聚焦难分类样本，仅仅使得Loss倾向于难分类样本还不够，因为训练过程中模型参数更新取决于Loss的梯度。
+
+
 
 
 

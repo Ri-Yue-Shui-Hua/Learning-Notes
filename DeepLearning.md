@@ -2086,7 +2086,19 @@ class Spacial_Info_Tanh(nn.Module):
 
 ![BiSeNet.onnx](DeepLearning.assets/BiSeNet.onnx.svg)
 
+## nnU-net
 
+![在这里插入图片描述](DeepLearning.assets/64487a1d1d9bb24894.png)
+
+nnUnet虽然不是新的论文，但是这个框架效果很好。它并没有提出新的网络结构，没有抓人眼球的地方，仅依靠一些技巧，将分割任务进行了大统一，并在很多任务上得到了非常好的成绩上，可以看出作者的功底之深。
+
+对于分割任务，从unet出来之后的几年里，其实在网络结构上已经没有多少的突破了，结构修改越多，反而越容易过拟合。因此作者认为更多的提升其实在于理解数据，并针对医学数据采用适当的预处理和训练方法。
+
+提出一种鲁棒的基于2D UNet和3D UNet的自适应框架nnUMet。作者在各种任务上拿这个框架和目前的STOA方法进行了比较，且该方法不需要手动调参。最终nnUNet得到了最高的平均dice。
+
+作者提出一种nnUNet（no-new-Net）框架，基于原始的UNet（很小的修改），不去采用哪些新的结构，如相残差连接、dense连接、注意力机制等花里胡哨的东西。相反的，把重心放在：预处理（resampling和normalization）、训练（loss，optimizer设置、数据增广）、推理（patch-based策略、test-time-augmentations集成和模型集成等）、后处理（如增强单连通域等）。
+
+参考：[【深度学习】nnU-Net(优秀的前处理和后处理框架)_专栏_易百纳技术社区 (ebaina.com)](https://www.ebaina.com/articles/140000012478)
 
 
 
@@ -3710,11 +3722,78 @@ print(loss) #tensor(1.8033, device='cuda:0')
 
 
 
-
+参考：[pytorch focal_loss - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/155615126)
 
 参考：[focal loss 通俗讲解 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/266023273)
 
+### pytorch 下的多分类 focal loss 以及 dice loss实现
 
+Dice loss
+
+```python
+class DiceLoss(nn.Module):
+    def __init__(self):
+        super(DiceLoss, self).__init__()
+
+    def forward(self, input, target):
+        N = target.size(0)
+        smooth = 1
+
+        input_flat = input.view(N, -1)
+        target_flat = target.view(N, -1)
+
+        intersection = input_flat * target_flat
+
+        loss = 2 * (intersection.sum(1) + smooth) / (input_flat.sum(1) + target_flat.sum(1) + smooth)
+        # loss = 1 - loss.sum() / N
+        return 1 - loss
+```
+
+focal loss
+$$
+L_{fl}=-\alpha(1-p_t)^{\gamma}\log(p_t) \tag{3}
+$$
+
+
+```python
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, logits=False, sampling='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.logits = logits
+        self.sampling = sampling
+
+    def forward(self, y_pred, y_true):
+        alpha = self.alpha
+        alpha_ = (1 - self.alpha)
+        if self.logits:
+            y_pred = torch.sigmoid(y_pred)
+
+        pt_positive = torch.where(y_true == 1, y_pred, torch.ones_like(y_pred))
+        pt_negative = torch.where(y_true == 0, y_pred, torch.zeros_like(y_pred))
+        pt_positive = torch.clamp(pt_positive, 1e-3, .999)
+        pt_negative = torch.clamp(pt_negative, 1e-3, .999)
+        pos_ = (1 - pt_positive) ** self.gamma
+        neg_ = pt_negative ** self.gamma
+
+        pos_loss = -alpha * pos_ * torch.log(pt_positive)
+        neg_loss = -alpha_ * neg_ * torch.log(1 - pt_negative)
+        loss = pos_loss + neg_loss
+
+        if self.sampling == "mean":
+            return loss.mean()
+        elif self.sampling == "sum":
+            return loss.sum()
+        elif self.sampling == None:
+            return loss
+```
+
+
+
+
+
+参考：[【深度学习】模型训练教程之Focal Loss调参和Dice实现_专栏_易百纳技术社区 (ebaina.com)](https://www.ebaina.com/articles/140000012799)
 
 # 理论知识
 

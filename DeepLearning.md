@@ -3597,6 +3597,117 @@ $$
 
 为了防止难易样本的频繁变化，应当选取小的学习率。防止学习率过大，造成 $w$ 变化较大从而引起 $p_t$ 的巨大变化，造成难易样本的改变。
 
+### 代码实现
+
+```python
+# coding: utf-8
+from torch import nn
+import torch
+from torch.nn import functional as F
+
+#focal_loss func, L = -α(1-yi)**γ *ce_loss(xi,yi)
+class focal_loss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, num_classes = 3, size_average=True):
+        super(focal_loss,self).__init__()
+        self.size_average = size_average
+        if isinstance(alpha,list):
+            assert len(alpha)==num_classes   
+            self.alpha = torch.Tensor(alpha)
+        else:
+            assert alpha<1  
+            self.alpha = torch.zeros(num_classes)
+            self.alpha[0] += alpha
+            self.alpha[1:] += (1-alpha)
+
+        self.gamma = gamma
+
+    def forward(self, preds, labels):
+        # assert preds.dim()==2 and labels.dim()==1
+        preds = preds.view(-1,preds.size(-1))
+        self.alpha = self.alpha.to(preds.device)
+        preds_softmax = F.softmax(preds, dim=1) 
+        preds_logsoft = torch.log(preds_softmax)
+        
+        #focal_loss func, Loss = -α(1-yi)**γ *ce_loss(xi,yi)
+        preds_softmax = preds_softmax.gather(1,labels.view(-1,1)) 
+        preds_logsoft = preds_logsoft.gather(1,labels.view(-1,1))
+        self.alpha = self.alpha.gather(0,labels.view(-1))
+        # torch.pow((1-preds_softmax), self.gamma) 为focal loss中 (1-pt)**γ
+        loss = -torch.mul(torch.pow((1-preds_softmax), self.gamma), preds_logsoft) 
+
+        loss = torch.mul(self.alpha, loss.t())
+        if self.size_average:
+            loss = loss.mean()
+        else:
+            loss = loss.sum()
+        return loss
+
+
+#ps 
+# 二分类 CrossEntropy         L= −(ylog(p)+(1−y)log(1−p))  down links L is wrong
+#https://blog.csdn.net/qq_16949707/article/details/82990164
+#https://blog.csdn.net/weixin_44638957/article/details/100733971   
+     
+pred = torch.randn((3,5))
+print("pred:",pred)
+"""
+pred: tensor([[-1.1999, -1.3392,  0.5045,  1.7387, -0.1106],
+        [ 1.1021, -0.2102, -0.5730, -0.4233,  0.5862],
+        [-0.4305, -0.0398, -0.4083, -0.1910,  1.4663]])
+
+"""
+
+
+label = torch.tensor([2,3,4])
+# label: tensor([2, 3, 4]) There are at least 5 classes because index is > 4
+print("label:",label) 
+
+
+"""
+labels--> tensor([1, 1, 1, 1], device='cuda:0')
+preds--->  tensor([[ -0.4785,   0.6357],
+        [-18.2364,  19.2472],
+        [-10.6268,  11.6450],
+        [-12.4487,  13.7467]], device='cuda:0', grad_fn=<ViewBackward>)
+
+"""
+# 有一个疑问目标检测第一类是背景，按照paper alpha值正样本 则这里是不是应该alpha=0.75 ？
+# 目标检测 中focalloss 真正的实现应该是按照下面的连接来的，先找出正样本、负样本
+# https://blog.csdn.net/weixin_44791964/article/details/102853782 
+loss_fn = focal_loss(alpha=0.25, gamma=2, num_classes=5)
+loss = loss_fn(pred, label) 
+print(loss) # tensor(0.7783)
+
+# alpha  Enter a list and apply different weights to each category separately
+loss_fn = focal_loss(alpha=[1,2,3,1,2], gamma=2, num_classes=5)
+loss = loss_fn(pred, label)
+print("cpu loss --->", loss) # tensor(1.8033)
+
+loss_fn2 = focal_loss(alpha=[1,2,3,3,0.25], gamma=2, num_classes=5)
+loss2 = loss_fn2(pred, label)
+print("cpu loss2 --->", loss2) # tensor(1.6033)
+
+
+# GPU apply
+pred = pred.to('cuda')
+print("pred:",pred)
+"""
+pred: tensor([[-1.1999, -1.3392,  0.5045,  1.7387, -0.1106],
+        [ 1.1021, -0.2102, -0.5730, -0.4233,  0.5862],
+        [-0.4305, -0.0398, -0.4083, -0.1910,  1.4663]], device='cuda:0')
+"""
+
+label = label.to('cuda')
+print("label:",label) #label: tensor([2, 3, 4], device='cuda:0')
+loss_fn = focal_loss(alpha=[1,2,3,1,2], gamma=2, num_classes=5)
+loss = loss_fn(pred, label) 
+print(loss) #tensor(1.8033, device='cuda:0')
+
+#CUDA_VISIBLE_DEVICES=3 python floss_test.py
+```
+
+
+
 
 
 

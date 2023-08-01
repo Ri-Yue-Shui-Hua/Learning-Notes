@@ -2010,6 +2010,54 @@ class Spacial_Info_Tanh(nn.Module):
 
 
 
+## Depthwise卷积与Pointwise卷积
+
+Depthwise(DW)卷积与Pointwise(PW)卷积，合起来被称作Depthwise Separable Convolution(参见Google的Xception)，该结构和常规卷积操作类似，可用来提取特征，但相比于常规卷积操作，其参数量和运算成本较低。所以在一些轻量级网络中会碰到这种结构如MobileNet。
+
+### 常规卷积操作
+
+对于一张5×5像素、三通道彩色输入图片（shape为5×5×3）。经过3×3卷积核的卷积层（假设输出通道数为4，则卷积核shape为3×3×3×4），最终输出4个Feature Map，如果有same padding则尺寸与输入层相同（5×5），如果没有则为尺寸变为3×3。
+
+![image-20230728093510144](DeepLearning.assets/image-20230728093510144.png)
+
+此时，卷积层共4个Filter，每个Filter包含了3个Kernel，每个Kernel的大小为3×3。因此卷积层的参数数量可以用如下公式来计算：
+N_std = 4 × 3 × 3 × 3 = 108
+
+### Depthwise Separable Convolution
+
+Depthwise Separable Convolution是将一个完整的卷积运算分解为两步进行，即Depthwise Convolution与Pointwise Convolution。
+
+#### Depthwise Convolution
+
+不同于常规卷积操作，Depthwise Convolution的一个卷积核负责一个通道，一个通道只被一个卷积核卷积。上面所提到的常规卷积每个卷积核是同时操作输入图片的每个通道。
+
+同样是对于一张5×5像素、三通道彩色输入图片（shape为5×5×3），Depthwise Convolution首先经过第一次卷积运算，不同于上面的常规卷积，DW完全是在二维平面内进行。卷积核的数量与上一层的通道数相同（通道和卷积核一一对应）。所以一个三通道的图像经过运算后生成了3个Feature map(如果有same padding则尺寸与输入层相同为5×5)，如下图所示。
+
+![image-20230728094128909](DeepLearning.assets/image-20230728094128909.png)
+
+其中一个Filter只包含一个大小为3×3的Kernel，卷积部分的参数个数计算如下：
+N_depthwise = 3 × 3 × 3 = 27
+
+Depthwise Convolution完成后的Feature map数量与输入层的通道数相同，无法扩展Feature map。而且这种运算对输入层的每个通道独立进行卷积运算，没有有效的利用不同通道在相同空间位置上的feature信息。因此需要Pointwise Convolution来将这些Feature map进行组合生成新的Feature map。
+
+### **Pointwise Convolution**
+
+Pointwise Convolution的运算与常规卷积运算非常相似，它的卷积核的尺寸为 1×1×M，M为上一层的通道数。所以这里的卷积运算会将上一步的map在深度方向上进行加权组合，生成新的Feature map。有几个卷积核就有几个输出Feature map。如下图所示。
+
+
+
+
+
+
+
+
+
+参考：[Depthwise卷积与Pointwise卷积 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/80041030)
+
+
+
+
+
 
 
 
@@ -3551,7 +3599,7 @@ $$
 L_{fl}=\begin{cases}
 -(1-\hat{p})^{\gamma}\log(\hat{p})&if \ y=1 \\
 -\hat{p}^{\gamma}\log(1-\hat{p}) & if \ y=0
-\end{cases} \tag{2}
+\end{cases} \tag{2}
 $$
 
 令
@@ -3567,7 +3615,6 @@ L_{fl}=-(1-p_t)^{\gamma}\log(p_t) \tag{3}
 $$
 同理可将交叉熵表达式（1）统一为一个表达式：
 $$
-
 L_{ce}=-\log(p_t) \tag{4}
 $$
 $p_t$ 反映了与ground truth即类别y的接近程度，$p_t$ 越大说明越接近类别y，即分类越准确。

@@ -4511,6 +4511,37 @@ print(pred_onx)
 
 
 
+# 工具包使用
+
+
+
+## tqdm的使用
+
+
+
+```python
+# -*- coding: utf-8 -*-
+ 
+from tqdm import tqdm
+from collections import OrderedDict
+ 
+total = 10000 #总迭代次数
+loss = total
+with tqdm(total=total, desc="进度条") as pbar:
+    for i  in range(total):
+        loss -= 1 
+#        pbar.set_postfix(OrderedDict(loss='{0:1.5f}'.format(loss)))
+        pbar.set_postfix({'loss' : '{0:1.5f}'.format(loss)}) #输入一个字典，显示实验指标
+        pbar.update(1)
+ 
+```
+
+在命令行的输出为，会显示进度情况
+
+```bash
+进度条: 100%|███████| 10000/10000 [00:00<00:00, 16709.54it/s, loss=-20000.00000]
+```
+
 
 
 

@@ -3026,3 +3026,28 @@ Press ANY key to exit...
 
 
 
+## OpenMP与TBB
+
+### OpenMP简介
+
+OpenMP是一种用于共享内存并行系统的多线程程序设计方案，支持的编程语言包括C、C++和Fortran。OpenMP提供了对并行算法的高层抽象描述，特别适合在多核CPU机器上的并行程序设计。编译器根据程序中添加的pragma指令，自动将程序并行处理，使用OpenMP降低了并行编程的难度和复杂度。当编译器不支持OpenMP时，程序会退化成普通（串行）程序。程序中已有的OpenMP指令不会影响程序的正常编译运行。
+
+
+
+### TBB简介
+
+TBB(Thread Building Blocks)是英特尔发布的一个库，全称为 Threading Building Blocks。TBB 获得过 17 届 Jolt Productivity Awards，是一套 C++ 模板库，和直接利用 OS API 写程序的 raw thread 比，在并行编程方面提供了适当的抽象，当然还包括更多其他内容，比如 task 概念，常用算法的成熟实现，自动负载均衡特 性还有不绑定 CPU 数量的灵活的可扩展性等等。在多核的平台上开发并行化的程序，必须合理地利用系统的资源 - 如与内核数目相匹配的线程，内存的合理访问次序，最大化重用缓存。有时候用户使用(系统)低级的应用接口创建、管理线程，很难保证是否程序处于最佳状态。 而 TBB 很好地解决了上述问题： 
+
+ 1）TBB提供C++模版库，用户不必关注线程，而专注任务本身。 
+ 2）抽象层仅需很少的接口代码，性能上毫不逊色。 
+ 3）灵活地适合不同的多核平台。 
+ 4）线程库的接口适合于跨平台的移植(Linux, Windows, Mac) 
+
+OneTBB源码： https://github.com/oneapi-src/oneTBB
+
+OneTBB开发手册： https://oneapi-src.github.io/oneTBB/
+
+
+
+
+

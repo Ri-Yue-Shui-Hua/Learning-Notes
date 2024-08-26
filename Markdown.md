@@ -220,9 +220,19 @@ markdown编辑器本身不支持字体、字号、颜色的修改。但因为mar
 
 ## 数学公式
 
+字体转换
 
 
+要对公式的某一部分字符进行字体转换，可以用{\rm 需转换的部分字符}命令，其中\rm可以参照下表选择合适的字体。一般情况下，公式默认为意大利体。
 
+| 标志     | 符号      | 显示         |
+| -------- | --------- | ------------ |
+| 罗马体   | \rm x     | $\rm x$      |
+| 意大利体 | \it x     | $ \it x$     |
+| 黑体     | \bf x     | $\bf x$      |
+| 花体     | \mathbb x | $\mathbb{x}$ |
+
+[Markdown数学公式语法、常用符号与字体_markdown公式字体-CSDN博客](https://blog.csdn.net/zdaiot/article/details/84710591)
 
 
 
@@ -362,3 +372,34 @@ mindmap
 
 
 
+## 正文段落中的空格
+
+一般首行缩进2个字符，使用`&emsp;&emsp;`。
+
+# typora
+
+## 插入视频
+
+参考代码
+
+```bash
+<video id="video" controls=""src="doc/video.mp4" preload="none" style="zoom:50%;">
+```
+
+
+
+<video id="video" controls=""src="F:\BaiduNetdiskDownload\AI精选资料包\一：人工智能论文合集\深度学习论文精讲-BERT模型\1. 课程介绍.mp4" preload="none" style="zoom:50%;">
+
+
+
+https://typorachina.com/guide/how-tos/embed-video-media-or-web-contents.html
+
+
+
+
+
+ <iframe src="//player.bilibili.com/player.html?aid=754115200&bvid=BV1kk4y1m7sT&cid=220773148&page=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>
+
+
+
+<iframe src="//player.bilibili.com/player.html?aid=754115200&bvid=BV1kk4y1m7sT&cid=220773148&page=1" scrolling="no" border="0" height="500" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>

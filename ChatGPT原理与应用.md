@@ -138,24 +138,15 @@ ChatGPT模型的复杂性和不确定性使得其很难被解释和控制。在�
 
 
 
-```mermaid
-graph TD
-1[Transformer]
-2[encoder]
-3[decoder]
-1-->2
-1-->3
-2-->4
-3-->5
-4[6 encoder layer]
-5[6 decoder layer]
-style 1 fill: #0f0
-style 2 fill: #0f0
-style 3 fill: #0f0
-style 4 fill: #0f0
-style 5 fill: #0f0
-
+```markmap
+# transformer
+## endocer
+- 6 encoder layer
+## decoder
+- 6 decoder layer
 ```
+
+
 
 
 

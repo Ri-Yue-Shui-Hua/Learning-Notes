@@ -125,10 +125,6 @@ Transformer 是 Google 的团队在 2017 年提出的一种 NLP 经典模型，�
 
 
 
-<iframe src="https://www.bilibili.com/video/BV1Um411r7gW/?spm_id_from=333.337.search-card.all.click&vd_source=148afb6cb7e28daa45a2f426a0dec4ee" scrolling="no" border="0" height="800" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>
-
-
-
 
 
 

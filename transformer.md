@@ -301,19 +301,36 @@ transformer论文中提到的参数
 
 前馈神经网络 指上个神经元输出会作为下个神经元输入的网络。**意味着神经网络中没有环路**。
 
+![transformer-FFN](transformer.assets/transformer-FFN.gif)
 
 
 
 
 
+## transformer的应用
+
+
+
+### 在医学图像中的应用
+
+![TMIsurvey_gif](transformer.assets/TMIsurvey_gif.gif)
+
+
+
+**BERT是一种基于Transformer的预训练语言模型，它的最大创新之处在于引入了`双向Transformer编码器`，这使得模型可以同时考虑输入序列的前后上下文信息。**
+
+
+
+![image-20240901174141780](transformer.assets/image-20240901174141780.png)
 
 
 
 
 
+**GPT也是一种基于Transformer的预训练语言模型，它的最大创新之处在于使用了`单向Transformer编码器`，这使得模型可以更好地捕捉输入序列的上下文信息。**
+
+![image-20240901174354043](transformer.assets/image-20240901174354043.png)
 
 
 
-
-
-
+![image-20240901181017595](transformer.assets/image-20240901181017595.png)

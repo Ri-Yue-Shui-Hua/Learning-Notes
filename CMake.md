@@ -1277,31 +1277,415 @@ int main() {
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 ```
 
-第二行，声明了项目的名称(`recipe-01`)和支持的编程语言(CXX代表C++)：
+3. 第二行，声明了项目的名称(`recipe-01`)和支持的编程语言(CXX代表C++)：
 
 ```cmake
 project(recipe-01 LANGUAGES CXX)
 ```
 
+4. 指示CMake创建一个新目标：可执行文件`hello-world`。这个可执行文件是通过编译和链接源文件`hello-world.cpp`生成的。CMake将为编译器使用默认设置，并自动选择生成工具：
 
+```cmake
+add_executable(hello-world hello-world.cpp)
+```
 
+5. 将该文件与源文件`hello-world.cpp`放在相同的目录中。记住，它只能被命名为`CMakeLists.txt`。
+6. 现在，可以通过创建`build`目录，在`build`目录下来配置项目：
 
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
 
+-- The CXX compiler identification is GNU 8.1.0
+-- Check for working CXX compiler: /usr/bin/c++
+-- Check for working CXX compiler: /usr/bin/c++ -- works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/cmake-cookbook/chapter-01/recipe-01/cxx-example/build
+```
 
+如果一切顺利，项目的配置已经在`build`目录中生成。我们现在可以编译可执行文件：
 
+```bash
+$ cmake --build .
 
+Scanning dependencies of target hello-world
+[ 50%] Building CXX object CMakeFiles/hello-world.dir/hello-world.cpp.o
+[100%] Linking CXX executable hello-world
+[100%] Built target hello-world
+```
 
+### 工作原理
 
+示例中，我们使用了一个简单的`CMakeLists.txt`来构建“Hello world”可执行文件：
 
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-01 LANGUAGES CXX)
+add_executable(hello-world hello-world.cpp)
+```
 
+**NOTE**:*CMake语言不区分大小写，但是参数区分大小写。*
 
+**TIPS**:*CMake中，C++是默认的编程语言。不过，我们还是建议使用`LANGUAGES`选项在`project`命令中显式地声明项目的语言。*
 
+要配置项目并生成构建器，我们必须通过命令行界面(CLI)运行CMake。CMake CLI提供了许多选项，`cmake -help`将输出以显示列出所有可用选项的完整帮助信息，我们将在书中对这些选项进行更多地了解。正如您将从`cmake -help`的输出中显示的内容，它们中的大多数选项会让你您访问CMake手册，查看详细信息。通过下列命令生成构建器：
 
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+```
 
+这里，我们创建了一个目录`build`(生成构建器的位置)，进入`build`目录，并通过指定`CMakeLists.txt`的位置(本例中位于父目录中)来调用CMake。可以使用以下命令行来实现相同的效果：
 
+```bash
+$ cmake -H. -Bbuild
+```
 
+该命令是跨平台的，使用了`-H`和`-B`为CLI选项。`-H`表示当前目录中搜索根`CMakeLists.txt`文件。`-Bbuild`告诉CMake在一个名为`build`的目录中生成所有的文件。
 
+**NOTE**:*`cmake -H. -Bbuild`也属于CMake标准使用方式: https://cmake.org/pipermail/cmake-developers/2018-January/030520.html 。不过，我们将在本书中使用传统方法(创建一个构建目录，进入其中，并通过将CMake指向`CMakeLists.txt`的位置来配置项目)。*
 
+运行`cmake`命令会输出一系列状态消息，显示配置信息：
+
+```bash
+$ cmake ..
+
+-- The CXX compiler identification is GNU 8.1.0
+-- Check for working CXX compiler: /usr/bin/c++
+-- Check for working CXX compiler: /usr/bin/c++ -- works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/cmake-cookbook/chapter-01/recipe-01/cxx-example/build
+```
+
+**NOTE**:*在与`CMakeLists.txt`相同的目录中执行`cmake .`，原则上足以配置一个项目。然而，CMake会将所有生成的文件写到项目的根目录中。这将是一个源代码内构建，通常是不推荐的，因为这会混合源代码和项目的目录树。我们首选的是源外构建。*
+
+CMake是一个构建系统生成器。将描述构建系统(如：Unix Makefile、Ninja、Visual Studio等)应当如何操作才能编译代码。然后，CMake为所选的构建系统生成相应的指令。默认情况下，在GNU/Linux和macOS系统上，CMake使用Unix Makefile生成器。Windows上，Visual Studio是默认的生成器。在下一个示例中，我们将进一步研究生成器，并在第13章中重新讨论生成器。
+
+GNU/Linux上，CMake默认生成Unix Makefile来构建项目：
+
+- `Makefile`: `make`将运行指令来构建项目。
+- `CMakefile`：包含临时文件的目录，CMake用于检测操作系统、编译器等。此外，根据所选的生成器，它还包含特定的文件。
+- `cmake_install.cmake`：处理安装规则的CMake脚本，在项目安装时使用。
+- `CMakeCache.txt`：如文件名所示，CMake缓存。CMake在重新运行配置时使用这个文件。
+
+要构建示例项目，我们运行以下命令：
+
+```bash
+$ cmake --build .
+```
+
+最后，CMake不强制指定构建目录执行名称或位置，我们完全可以把它放在项目路径之外。这样做同样有效：
+
+```bash
+$ mkdir -p /tmp/someplace
+$ cd /tmp/someplace
+$ cmake /path/to/source
+$ cmake --build .
+```
+
+### 更多信息
+
+官方文档 https://cmake.org/runningcmake/ 给出了运行CMake的简要概述。由CMake生成的构建系统，即上面给出的示例中的Makefile，将包含为给定项目构建目标文件、可执行文件和库的目标及规则。`hello-world`可执行文件是在当前示例中的唯一目标，运行以下命令：
+
+```bash
+$ cmake --build . --target help
+
+The following are some of the valid targets for this Makefile:
+... all (the default if no target is provided)
+... clean
+... depend
+... rebuild_cache
+... hello-world
+... edit_cache
+... hello-world.o
+... hello-world.i
+... hello-world.s
+```
+
+CMake生成的目标比构建可执行文件的目标要多。可以使用`cmake --build . --target <target-name>`语法，实现如下功能：
+
+- **all**(或Visual Studio generator中的ALL_BUILD)是默认目标，将在项目中构建所有目标。
+- **clean**，删除所有生成的文件。
+- **rebuild_cache**，将调用CMake为源文件生成依赖(如果有的话)。
+- **edit_cache**，这个目标允许直接编辑缓存。
+
+对于更复杂的项目，通过测试阶段和安装规则，CMake将生成额外的目标：
+
+- **test**(或Visual Studio generator中的**RUN_TESTS**)将在CTest的帮助下运行测试套件。我们将在第4章中详细讨论测试和CTest。
+- **install**，将执行项目安装规则。我们将在第10章中讨论安装规则。
+- **package**，此目标将调用CPack为项目生成可分发的包。打包和CPack将在第11章中讨论。
+
+## 切换生成器
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-01/recipe-02 中找到，其中有一个C++、C和Fortran示例。该配置在CMake 3.5版(或更高版本)下测试没问题，并且已经在GNU/Linux、macOS和Windows上进行了测试。*
+
+CMake是一个构建系统生成器，可以使用单个CMakeLists.txt为不同平台上的不同工具集配置项目。您可以在CMakeLists.txt中描述构建系统必须运行的操作，以配置并编译代码。基于这些指令，CMake将为所选的构建系统(Unix Makefile、Ninja、Visual Studio等等)生成相应的指令。我们将在第13章中重新讨论生成器。
+
+### 准备工作
+
+CMake针对不同平台支持本地构建工具列表。同时支持命令行工具(如Unix Makefile和Ninja)和集成开发环境(IDE)工具。用以下命令，可在平台上找到生成器名单，以及已安装的CMake版本：
+
+```bash
+$ cmake --help
+```
+
+这个命令的输出，将列出CMake命令行界面上所有的选项，您会找到可用生成器的列表。例如，安装了CMake 3.11.2的GNU/Linux机器上的输出：
+
+```bash
+Generators
+The following generators are available on this platform:
+Unix Makefiles = Generates standard UNIX makefiles.
+Ninja = Generates build.ninja files.
+Watcom WMake = Generates Watcom WMake makefiles.
+CodeBlocks - Ninja = Generates CodeBlocks project files.
+CodeBlocks - Unix Makefiles = Generates CodeBlocks project files.
+CodeLite - Ninja = Generates CodeLite project files.
+CodeLite - Unix Makefiles = Generates CodeLite project files.
+Sublime Text 2 - Ninja = Generates Sublime Text 2 project files.
+Sublime Text 2 - Unix Makefiles = Generates Sublime Text 2 project files.
+Kate - Ninja = Generates Kate project files.
+Kate - Unix Makefiles = Generates Kate project files.
+Eclipse CDT4 - Ninja = Generates Eclipse CDT 4.0 project files.
+Eclipse CDT4 - Unix Makefiles= Generates Eclipse CDT 4.0 project files.
+```
+
+使用此示例，我们将展示为项目切换生成器是多么**EASY**。
+
+### 具体实施
+
+我们将重用前一节示例中的`hello-world.cpp`和`CMakeLists.txt`。惟一的区别在使用CMake时，因为现在必须显式地使用命令行方式，用`-G`切换生成器。
+
+1. 首先，使用以下步骤配置项目:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake -G Ninja ..
+
+-- The CXX compiler identification is GNU 8.1.0
+-- Check for working CXX compiler: /usr/bin/c++
+-- Check for working CXX compiler: /usr/bin/c++ -- works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/cmake-cookbook/chapter-01/recipe-02/cxx-exampl
+```
+
+2. 第二步，构建项目：
+
+```bash
+$ cmake --build .
+
+[2/2] Linking CXX executable hello-world
+```
+
+### 如何工作
+
+与前一个配置相比，每一步的输出没什么变化。每个生成器都有自己的文件集，所以编译步骤的输出和构建目录的内容是不同的：
+
+- `build.ninja`和`rules.ninja`：包含Ninja的所有的构建语句和构建规则。
+- `CMakeCache.txt`：CMake会在这个文件中进行缓存，与生成器无关。
+- `CMakeFiles`：包含由CMake在配置期间生成的临时文件。
+- `cmake_install.cmake`：CMake脚本处理安装规则，并在安装时使用。
+
+`cmake --build .`将`ninja`命令封装在一个跨平台的接口中。
+
+### 更多信息
+
+我们将在第13章中讨论可选生成器和交叉编译。
+
+要了解关于生成器的更多信息，CMake官方文档是一个很好的选择: https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html
+
+## 构建和链接静态库和动态库
+
+**NOTE**: *这个示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-01/recipe-03 找到，其中有C++和Fortran示例。该配置在CMake 3.5版(或更高版本)测试有效的，并且已经在GNU/Linux、macOS和Windows上进行了测试。*
+
+项目中会有单个源文件构建的多个可执行文件的可能。项目中有多个源文件，通常分布在不同子目录中。这种实践有助于项目的源代码结构，而且支持模块化、代码重用和关注点分离。同时，这种分离可以简化并加速项目的重新编译。本示例中，我们将展示如何将源代码编译到库中，以及如何链接这些库。
+
+### 准备工作
+
+回看第一个例子，这里并不再为可执行文件提供单个源文件，我们现在将引入一个类，用来包装要打印到屏幕上的消息。更新一下的`hello-world.cpp`:
+
+```c++
+#include "Message.hpp"
+
+#include <cstdlib>
+#include <iostream>
+
+int main() {
+  Message say_hello("Hello, CMake World!");
+  std::cout << say_hello << std::endl;
+  
+  Message say_goodbye("Goodbye, CMake World");
+  std::cout << say_goodbye << std::endl;
+  
+  return EXIT_SUCCESS;
+}
+```
+
+`Message`类包装了一个字符串，并提供重载过的`<<`操作，并且包括两个源码文件：`Message.hpp`头文件与`Message.cpp`源文件。`Message.hpp`中的接口包含以下内容：
+
+```cpp
+#pragma once
+
+#include <iosfwd>
+#include <string>
+
+class Message {
+public:
+  Message(const std::string &m) : message_(m) {}
+  friend std::ostream &operator<<(std::ostream &os, Message &obj) {
+    return obj.printObject(os);
+  }
+private:
+  std::string message_;
+  std::ostream &printObject(std::ostream &os);
+};
+```
+
+`Message.cpp`实现如下：
+
+```cpp
+#include "Message.hpp"
+
+#include <iostream>
+#include <string>
+
+std::ostream &Message::printObject(std::ostream &os) {
+  os << "This is my very nice message: " << std::endl;
+  os << message_;
+  return os;
+}
+```
+
+### 具体实施
+
+这里有两个文件需要编译，所以`CMakeLists.txt`必须进行修改。本例中，先把它们编译成一个库，而不是直接编译成可执行文件:
+
+1. 创建目标——静态库。库的名称和源码文件名相同，具体代码如下：
+
+```cmake
+add_library(message
+  STATIC
+    Message.hpp
+    Message.cpp
+  )
+```
+
+2. 创建`hello-world`可执行文件的目标部分不需要修改：
+
+```cmake
+add_executable(hello-world hello-world.cpp)
+```
+
+3. 最后，将目标库链接到可执行目标：
+
+```cmake
+target_link_libraries(hello-world message)
+```
+
+4. 对项目进行配置和构建。库编译完成后，将连接到`hello-world`可执行文件中：
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+
+Scanning dependencies of target message
+[ 25%] Building CXX object CMakeFiles/message.dir/Message.cpp.o
+[ 50%] Linking CXX static library libmessage.a
+[ 50%] Built target message
+Scanning dependencies of target hello-world
+[ 75%] Building CXX object CMakeFiles/hello-world.dir/hello-world.cpp.o
+[100%] Linking CXX executable hello-world
+[100%] Built target hello-world
+```
+
+```bash
+$ ./hello-world
+
+This is my very nice message:
+Hello, CMake World!
+This is my very nice message:
+Goodbye, CMake World
+```
+
+### 工作原理
+
+本节引入了两个新命令：
+
+- `add_library(message STATIC Message.hpp Message.cpp)`：生成必要的构建指令，将指定的源码编译到库中。`add_library`的第一个参数是目标名。整个`CMakeLists.txt`中，可使用相同的名称来引用库。生成的库的实际名称将由CMake通过在前面添加前缀`lib`和适当的扩展名作为后缀来形成。生成库是根据第二个参数(`STATIC`或`SHARED`)和操作系统确定的。
+- `target_link_libraries(hello-world message)`: 将库链接到可执行文件。此命令还确保`hello-world`可执行文件可以正确地依赖于消息库。因此，在消息库链接到`hello-world`可执行文件之前，需要完成消息库的构建。
+
+编译成功后，构建目录包含`libmessage.a`一个静态库(在GNU/Linux上)和`hello-world`可执行文件。
+
+CMake接受其他值作为`add_library`的第二个参数的有效值，我们来看下本书会用到的值：
+
+- **STATIC**：用于创建静态库，即编译文件的打包存档，以便在链接其他目标时使用，例如：可执行文件。
+- **SHARED**：用于创建动态库，即可以动态链接，并在运行时加载的库。可以在`CMakeLists.txt`中使用`add_library(message SHARED Message.hpp Message.cpp)`从静态库切换到动态共享对象(DSO)。
+- **OBJECT**：可将给定`add_library`的列表中的源码编译到目标文件，不将它们归档到静态库中，也不能将它们链接到共享对象中。如果需要一次性创建静态库和动态库，那么使用对象库尤其有用。我们将在本示例中演示。
+- **MODULE**：又为DSO组。与`SHARED`库不同，它们不链接到项目中的任何目标，不过可以进行动态加载。该参数可以用于构建运行时插件。
+
+CMake还能够生成特殊类型的库，这不会在构建系统中产生输出，但是对于组织目标之间的依赖关系，和构建需求非常有用：
+
+- **IMPORTED**：此类库目标表示位于项目外部的库。此类库的主要用途是，对现有依赖项进行构建。因此，`IMPORTED`库将被视为不可变的。我们将在本书的其他章节演示使用`IMPORTED`库的示例。参见: https://cmake.org/cmake/help/latest/manual/cmakebuildsystem.7.html#imported-targets
+- **INTERFACE**：与`IMPORTED`库类似。不过，该类型库可变，没有位置信息。它主要用于项目之外的目标构建使用。我们将在本章第5节中演示`INTERFACE`库的示例。参见: https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html#interface-libraries
+- **ALIAS**：顾名思义，这种库为项目中已存在的库目标定义别名。不过，不能为`IMPORTED`库选择别名。参见: https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html#alias-libraries
+
+本例中，我们使用`add_library`直接集合了源代码。后面的章节中，我们将使用`target_sources`汇集源码，特别是在第7章。请参见Craig Scott的这篇精彩博文: https://crascit.com/2016/01/31/enhanced-source-file-handling-with-target_sources/ ，其中有对`target_sources`命令的具体使用。
+
+### 更多信息
+
+现在展示`OBJECT`库的使用，修改`CMakeLists.txt`，如下：
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES CXX)
+
+add_library(message-objs
+	OBJECT
+		Message.hpp
+		Message.cpp
+	)
+	
+# this is only needed for older compilers
+# but doesn't hurt either to have it
+set_target_properties(message-objs
+	PROPERTIES
+		POSITION_INDEPENDENT_CODE 1
+	)
+	
+add_library(message-shared
+	SHARED
+		$<TARGET_OBJECTS:message-objs>
+	)
+	
+add_library(message-static
+	STATIC
+		$<TARGET_OBJECTS:message-objs>
+	)
+	
+add_executable(hello-world hello-world.cpp)
+
+target_link_libraries(hello-world message-static)
+
+```
 
 
 

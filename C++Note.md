@@ -1180,6 +1180,10 @@ const char *str = FUN();
 
 [C/C++ 中 static 的用法全局变量与局部变量 | 菜鸟教程 (runoob.com)](https://www.runoob.com/w3cnote/cpp-static-usage.html)
 
+[C/C++ static关键字详解（最全解析，static是什么，static如何使用，static的常考面试题）-CSDN博客](https://blog.csdn.net/weixin_45031801/article/details/134215425)
+
+
+
 #### 什么是static?
 
 

@@ -2427,6 +2427,309 @@ set_target_properties(animals
 )
 ```
 
+5. 然后，为”动物农场”的可执行文件添加一个新目标，并设置它的属性:
+
+```cmake
+add_executable(animal-farm animal-farm.cpp)
+set_target_properties(animal-farm
+  PROPERTIES
+    CXX_STANDARD 14
+    CXX_EXTENSIONS OFF
+    CXX_STANDARD_REQUIRED ON
+  )
+```
+
+6. 最后，将可执行文件链接到库:
+
+```cmake
+target_link_libraries(animal-farm animals)
+```
+
+7. 现在，来看看猫和狗都说了什么:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./animal-farm
+
+I'm Simon the cat!
+I'm Marlowe the dog!
+```
+
+### 工作原理
+
+步骤4和步骤5中，我们为动物和动物农场目标设置了一些属性:
+
+- **CXX_STANDARD**会设置我们想要的标准。
+- **CXX_EXTENSIONS**告诉CMake，只启用`ISO C++`标准的编译器标志，而不使用特定编译器的扩展。
+- **CXX_STANDARD_REQUIRED**指定所选标准的版本。如果这个版本不可用，CMake将停止配置并出现错误。当这个属性被设置为`OFF`时，CMake将寻找下一个标准的最新版本，直到一个合适的标志。这意味着，首先查找`C++14`，然后是`C++11`，然后是`C++98`。（译者注：目前会从`C++20`或`C++17`开始查找）
+
+**NOTE**:*本书发布时，还没有`Fortran_STANDARD`可用，但是可以使用`target_compile_options`设置标准，可以参见: https://github.com/devcafe/cmake-cookbook/tree/v1.0/chapter-01/recipe-09*
+
+**TIPS**:*如果语言标准是所有目标共享的全局属性，那么可以将`CMAKE_<LANG>_STANDARD`、`CMAKE_<LANG>_EXTENSIONS`和`CMAKE_<LANG>_STANDARD_REQUIRED`变量设置为相应的值。所有目标上的对应属性都将使用这些设置。*
+
+### 更多信息
+
+通过引入编译特性，CMake对语言标准提供了更精细的控制。这些是语言标准引入的特性，比如`C++11`中的可变参数模板和`Lambda`表达式，以及`C++14`中的自动返回类型推断。可以使用`target_compile_features()`命令要求为特定的目标提供特定的特性，CMake将自动为标准设置正确的编译器标志。也可以让CMake为可选编译器特性，生成兼容头文件。
+
+**TIPS**:*我们建议阅读CMake在线文档，全面了解`cmake-compile-features`和如何处理编译特性和语言标准: https://cmake.org/cmake/help/latest/manual/cmake-compile-features.7.html 。*
+
+## 使用控制流
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-01/recipe-10 中找到，有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+本章前面的示例中，已经使用过`if-else-endif`。CMake还提供了创建循环的语言工具：`foreach endforeach`和`while-endwhile`。两者都可以与`break`结合使用，以便尽早从循环中跳出。本示例将展示如何使用`foreach`，来循环源文件列表。我们将应用这样的循环，在引入新目标的前提下，来为一组源文件进行优化降级。
+
+### 准备工作
+
+将重用第8节中的几何示例，目标是通过将一些源代码汇集到一个列表中，从而微调编译器的优化。
+
+### 具体实施
+
+下面是`CMakeLists.txt`中要的详细步骤:
+
+1. 与示例8中一样，指定了CMake的最低版本、项目名称和语言，并声明了几何库目标:
+
+
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-10 LANGUAGES CXX)
+add_library(geometry
+  STATIC
+    geometry_circle.cpp
+    geometry_circle.hpp
+    geometry_polygon.cpp
+    geometry_polygon.hpp
+    geometry_rhombus.cpp
+    geometry_rhombus.hpp
+    geometry_square.cpp
+    geometry_square.hpp
+  )
+```
+
+2. 使用`-O3`编译器优化级别编译库，对目标设置一个私有编译器选项:
+
+```cmake
+target_compile_options(geometry
+  PRIVATE
+  	-O3
+  )
+```
+
+3. 然后，生成一个源文件列表，以较低的优化选项进行编译:
+
+```cmake
+list(
+  APPEND sources_with_lower_optimization
+    geometry_circle.cpp
+    geometry_rhombus.cpp
+  )
+```
+
+4. 循环这些源文件，将它们的优化级别调到`-O2`。使用它们的源文件属性完成:
+
+```cmake
+message(STATUS "Setting source properties using IN LISTS syntax:")
+foreach(_source IN LISTS sources_with_lower_optimization)
+  set_source_files_properties(${_source} PROPERTIES COMPILE_FLAGS -O2)
+  message(STATUS "Appending -O2 flag for ${_source}")
+endforeach()
+```
+
+5. 为了确保设置属性，再次循环并在打印每个源文件的`COMPILE_FLAGS`属性:
+
+```cmake
+message(STATUS "Querying sources properties using plain syntax:")
+foreach(_source ${sources_with_lower_optimization})
+  get_source_file_property(_flags ${_source} COMPILE_FLAGS)
+  message(STATUS "Source ${_source} has the following extra COMPILE_FLAGS: ${_flags}")
+endforeach()
+```
+
+6. 最后，添加`compute-areas`可执行目标，并将`geometry`库连接上去:
+
+```cmake
+add_executable(compute-areas compute-areas.cpp)
+target_link_libraries(compute-areas geometry)
+```
+
+7. 验证在配置步骤中正确设置了标志:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+...
+-- Setting source properties using IN LISTS syntax:
+-- Appending -O2 flag for geometry_circle.cpp
+-- Appending -O2 flag for geometry_rhombus.cpp
+-- Querying sources properties using plain syntax:
+-- Source geometry_circle.cpp has the following extra COMPILE_FLAGS: -O2
+-- Source geometry_rhombus.cpp has the following extra COMPILE_FLAGS: -O2
+```
+
+8. 最后，还使用`VERBOSE=1`检查构建步骤。将看到`-O2`标志添加在`-O3`标志之后，但是最后一个优化级别标志(在本例中是`-O2`)不同:
+
+```bash
+$ cmake --build . -- VERBOSE=1
+```
+
+### 工作原理
+
+`foreach-endforeach`语法可用于在变量列表上，表示重复特定任务。本示例中，使用它来操作、设置和获取项目中特定文件的编译器标志。CMake代码片段中引入了另外两个新命令:
+
+- `set_source_files_properties(file PROPERTIES property value)`，它将属性设置为给定文件的传递值。与目标非常相似，文件在CMake中也有属性，允许对构建系统进行非常细粒度的控制。源文件的可用属性列表可以在这里找到: https://cmake.org/cmake/help/v3.5/manual/cmake-properties.7.html#source-file-properties 。
+- `get_source_file_property(VAR file property)`，检索给定文件所需属性的值，并将其存储在CMake`VAR`变量中。
+
+**NOTE**:*CMake中，列表是用分号分隔的字符串组。列表可以由`list`或`set`命令创建。例如，`set(var a b c d e)`和`list(APPEND a b c d e)`都创建了列表`a;b;c;d;e`。*
+
+**TIPS**:*为了对一组文件降低优化，将它们收集到一个单独的目标(库)中，并为这个目标显式地设置优化级别，而不是附加一个标志，这样可能会更简洁，不过在本示例中，我们的重点是`foreach-endforeach`。*
+
+### 更多信息
+
+`foreach()`的四种使用方式:
+
+- `foreach(loop_var arg1 arg2 ...)`: 其中提供循环变量和显式项列表。当为`sources_with_lower_optimization`中的项打印编译器标志集时，使用此表单。注意，如果项目列表位于变量中，则必须显式展开它；也就是说，`${sources_with_lower_optimization}`必须作为参数传递。
+- 通过指定一个范围，可以对整数进行循环，例如：`foreach(loop_var range total)`或`foreach(loop_var range start stop [step])`。
+- 对列表值变量的循环，例如：`foreach(loop_var IN LISTS [list1[...]])` 。参数解释为列表，其内容就会自动展开。
+- 对变量的循环，例如：`foreach(loop_var IN ITEMS [item1 [...]])`。参数的内容没有展开。
+
+
+
+
+
+# CMake 完整使用教程 之三 检测环境
+
+
+
+- 本章的主要内容有：
+
+  - 检测操作系统
+  - 处理与平台相关的源码
+  - 处理与编译器相关的源码
+  - 检测处理器体系结构
+  - 检测处理器指令集
+  - 为Eigen库使能向量化
+
+  尽管CMake跨平台，但有时源代码并不是完全可移植(例如：当使用依赖于供应商的扩展时)，我们努力使源代码能够跨平台、操作系统和编译器。这个过程中会发现，有必要根据平台不同的方式配置和/或构建代码。这对于历史代码或交叉编译尤其重要，我们将在第13章中讨论这个主题。了解处理器指令集也有助于优化特定目标平台的性能。本章会介绍，检测环境的方法，并给出建议。
+
+## 检测操作系统
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-02/recipe-01 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+CMake是一组跨平台工具。不过，了解操作系统(OS)上执行配置或构建步骤也很重要。从而与操作系统相关的CMake代码，会根据操作系统启用条件编译，或者在可用或必要时使用特定于编译器的扩展。本示例中，我们将通过一个不需要编译任何源代码的示例，演示如何使用CMake检测操作系统。为了简单起见，我们只考虑配置过程。
+
+### 具体实施
+
+我们将用一个非常简单的`CMakeLists.txt`进行演示:
+
+1. 首先，定义CMake最低版本和项目名称。请注意，语言是`NONE`:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-01 LANGUAGES NONE)
+```
+
+2. 然后，根据检测到的操作系统信息打印消息:
+
+```cmake
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	message(STATUS "Configuring on/for Linux")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+	message(STATUS "Configuring on/for macOS")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	message(STATUS "Configuring on/for Windows")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "AIX")
+	message(STATUS "Configuring on/for IBM AIX")
+else()
+	message(STATUS "Configuring on/for ${CMAKE_SYSTEM_NAME}")
+endif()
+```
+
+测试之前，检查前面的代码块，并考虑相应系统上的具体行为。
+
+3. 现在，测试配置项目:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+```
+
+4. 关于CMake输出，这里有一行很有趣——在Linux系统上(在其他系统上，输出会不同):
+
+```bash
+-- Configuring on/for Linux
+```
+
+### 工作原理
+
+CMake为目标操作系统定义了`CMAKE_SYSTEM_NAME`，因此不需要使用定制命令、工具或脚本来查询此信息。然后，可以使用此变量的值实现特定于操作系统的条件和解决方案。在具有`uname`命令的系统上，将此变量设置为`uname -s`的输出。该变量在macOS上设置为“Darwin”。在Linux和Windows上，它分别计算为“Linux”和“Windows”。我们了解了如何在特定的操作系统上执行特定的CMake代码。当然，应该尽量减少这种定制化行为，以便简化迁移到新平台的过程。
+
+**NOTE**:*为了最小化从一个平台转移到另一个平台时的成本，应该避免直接使用Shell命令，还应该避免显式的路径分隔符(Linux和macOS上的前斜杠和Windows上的后斜杠)。CMake代码中只使用前斜杠作为路径分隔符，CMake将自动将它们转换为所涉及的操作系统环境。*
+
+## 处理与平台相关的源代码
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-02/recipe-02 中找到，包含一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+理想情况下，应该避免依赖于平台的源代码，但是有时我们没有选择，特别是当要求配置和编译不是自己编写的代码时。本示例中，将演示如何使用CMake根据操作系统编译源代码。
+
+### 准备工作
+
+修改`hello-world.cpp`示例代码，将第1章第1节的例子进行修改:
+
+```cpp
+#include <cstdlib>
+#include <iostream>
+#include <string>
+
+std::string say_hello() {
+#ifdef IS_WINDOWS
+  return std::string("Hello from Windows!");
+#elif IS_LINUX
+  return std::string("Hello from Linux!");
+#elif IS_MACOS
+  return std::string("Hello from macOS!");
+#else
+  return std::string("Hello from an unknown system!");
+#endif
+}
+
+int main() {
+  std::cout << say_hello() << std::endl;
+  return EXIT_SUCCESS;
+}
+```
+
+### 具体实施
+
+完成一个`CMakeLists.txt`实例，使我们能够基于目标操作系统有条件地编译源代码：
+
+1. 首先，设置了CMake最低版本、项目名称和支持的语言:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-02 LANGUAGES CXX)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

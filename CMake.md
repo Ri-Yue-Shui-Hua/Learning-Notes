@@ -2716,19 +2716,335 @@ cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 project(recipe-02 LANGUAGES CXX)
 ```
 
+2. 然后，定义可执行文件及其对应的源文件:
 
+```cmake
+add_executable(hello-world hello-world.cpp)
+```
 
+3. 通过定义以下目标编译定义，让预处理器知道系统名称:
 
+```cmake
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(hello-world PUBLIC "IS_LINUX")
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  target_compile_definitions(hello-world PUBLIC "IS_MACOS")
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  target_compile_definitions(hello-world PUBLIC "IS_WINDOWS")
+endif()
+```
 
+继续之前，先检查前面的表达式，并考虑在不同系统上有哪些行为。
 
+4. 现在，准备测试它，并配置项目:
 
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./hello-world
 
+Hello from Linux!
 
+```
 
+Windows系统上，将看到来自Windows的Hello。其他操作系统将产生不同的输出。
 
+### 工作原理
 
+`hello-world.cpp`示例中，有趣的部分是基于预处理器定义`IS_WINDOWS`、`IS_LINUX`或`IS_MACOS`的条件编译:
 
+```cpp
+std::string say_hello() {
+#ifdef IS_WINDOWS
+  return std::string("Hello from Windows!");
+#elif IS_LINUX
+  return std::string("Hello from Linux!");
+#elif IS_MACOS
+  return std::string("Hello from macOS!");
+#else
+  return std::string("Hello from an unknown system!");
+#endif
+}
+```
 
+这些定义在CMakeLists.txt中配置时定义，通过使用`target_compile_definition`在预处理阶段使用。可以不重复`if-endif`语句，以更紧凑的表达式实现，我们将在下一个示例中演示这种重构方式。也可以把`if-endif`语句加入到一个`if-else-else-endif`语句中。这个阶段，可以使用`add_definitions(-DIS_LINUX)`来设置定义(当然，可以根据平台调整定义)，而不是使用`target_compile_definition`。使用`add_definitions`的缺点是，会修改编译整个项目的定义，而`target_compile_definitions`给我们机会，将定义限制于一个特定的目标，以及通过`PRIVATE|PUBLIC|INTERFACE`限定符，限制这些定义可见性。第1章的第8节，对这些限定符有详细的说明:
+
+- **PRIVATE**，编译定义将只应用于给定的目标，而不应用于相关的其他目标。
+- **INTERFACE**，对给定目标的编译定义将只应用于使用它的目标。
+- **PUBLIC**，编译定义将应用于给定的目标和使用它的所有其他目标。
+
+**NOTE**:*将项目中的源代码与平台相关性最小化，可使移植更加容易。*
+
+##  处理与编译器相关的源代码
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-02/recipe-03 中找到，包含一个C++和Fortran示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+这个方法与前面的方法类似，我们将使用CMake来编译依赖于环境的条件源代码：本例将依赖于编译器。为了可移植性，我们尽量避免去编写新代码，但遇到有依赖的情况我们也要去解决，特别是当使用历史代码或处理编译器依赖工具，如[sanitizers](https://github.com/google/sanitizers)。从这一章和前一章的示例中，我们已经掌握了实现这一目标的所有方法。尽管如此，讨论与编译器相关的源代码的处理问题还是很有用的，这样我们将有机会从另一方面了解CMake。
+
+### 准备工作
+
+本示例中，我们将从`C++`中的一个示例开始，稍后我们将演示一个`Fortran`示例，并尝试重构和简化CMake代码。
+
+看一下`hello-world.cpp`源代码:
+
+```cpp
+#include <cstdlib>
+#include <iostream>
+#include <string>
+
+std::string say_hello() {
+#ifdef IS_INTEL_CXX_COMPILER
+  // only compiled when Intel compiler is selected
+  // such compiler will not compile the other branches
+  return std::string("Hello Intel compiler!");
+#elif IS_GNU_CXX_COMPILER
+  // only compiled when GNU compiler is selected
+  // such compiler will not compile the other branches
+  return std::string("Hello GNU compiler!");
+#elif IS_PGI_CXX_COMPILER
+  // etc.
+  return std::string("Hello PGI compiler!");
+#elif IS_XL_CXX_COMPILER
+  return std::string("Hello XL compiler!");
+#else
+  return std::string("Hello unknown compiler - have we met before?");
+#endif
+}
+
+int main() {
+  std::cout << say_hello() << std::endl;
+  std::cout << "compiler name is " COMPILER_NAME << std::endl;
+  return EXIT_SUCCESS;
+}
+```
+
+`Fortran`示例(`hello-world.F90`):
+
+```fortran
+program hello
+
+  implicit none
+#ifdef IS_Intel_FORTRAN_COMPILER
+  print *, 'Hello Intel compiler!'
+#elif IS_GNU_FORTRAN_COMPILER
+  print *, 'Hello GNU compiler!'
+#elif IS_PGI_FORTRAN_COMPILER
+  print *, 'Hello PGI compiler!'
+#elif IS_XL_FORTRAN_COMPILER
+  print *, 'Hello XL compiler!'
+#else
+  print *, 'Hello unknown compiler - have we met before?'
+#endif
+
+end program
+```
+
+### 具体实施
+
+我们将从`C++`的例子开始，然后再看`Fortran`的例子:
+
+1. `CMakeLists.txt`文件中，定义了CMake最低版本、项目名称和支持的语言:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES CXX)
+```
+
+2. 然后，定义可执行目标及其对应的源文件:
+
+```cmake
+add_executable(hello-world hello-world.cpp)
+```
+
+3. 通过定义以下目标编译定义，让预处理器了解编译器的名称和供应商:
+
+```cmake
+target_compile_definitions(hello-world PUBLIC "COMPILER_NAME=\"${CMAKE_CXX_COMPILER_ID}\"")
+
+if(CMAKE_CXX_COMPILER_ID MATCHES Intel)
+  target_compile_definitions(hello-world PUBLIC "IS_INTEL_CXX_COMPILER")
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES GNU)
+  target_compile_definitions(hello-world PUBLIC "IS_GNU_CXX_COMPILER")
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES PGI)
+  target_compile_definitions(hello-world PUBLIC "IS_PGI_CXX_COMPILER")
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES XL)
+  target_compile_definitions(hello-world PUBLIC "IS_XL_CXX_COMPILER")
+endif()
+```
+
+现在我们已经可以预测结果了:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./hello-world
+
+Hello GNU compiler!
+```
+
+使用不同的编译器，此示例代码将打印不同的问候语。
+
+前一个示例的`CMakeLists.txt`文件中的`if`语句似乎是重复的，我们不喜欢重复的语句。能更简洁地表达吗？当然可以！为此，让我们再来看看`Fortran`示例。
+
+`Fortran`例子的`CMakeLists.txt`文件中，我们需要做以下工作:
+
+1. 需要使`Fortran`语言:
+
+```cmake
+project(recipe-03 LANGUAGE Fortran)
+```
+
+2. 然后，定义可执行文件及其对应的源文件。在本例中，使用大写`.F90`后缀:
+
+```cmake
+add_executable(hello-world hello-world.F90)
+```
+
+3. 我们通过定义下面的目标编译定义，让预处理器非常清楚地了解编译器:
+
+```cmake
+target_compile_definitions(hello-world
+  PUBLIC "IS_${CMAKE_Fortran_COMPILER_ID}_FORTRAN_COMPILER"
+  )
+```
+
+其余行为与`C++`示例相同。
+
+### 工作原理
+
+`CMakeLists.txt`会在配置时，进行预处理定义，并传递给预处理器。`Fortran`示例包含非常紧凑的表达式，我们使用`CMAKE_Fortran_COMPILER_ID`变量，通过`target_compile_definition`使用构造预处理器进行预处理定义。为了适应这种情况，我们必须将”Intel”从`IS_INTEL_CXX_COMPILER`更改为`IS_Intel_FORTRAN_COMPILER`。通过使用相应的`CMAKE_C_COMPILER_ID`和`CMAKE_CXX_COMPILER_ID`变量，我们可以在`C`或`C++`中实现相同的效果。但是，请注意，`CMAKE_<LANG>_COMPILER_ID`不能保证为所有编译器或语言都定义。
+
+**NOTE**:*对于应该预处理的`Fortran`代码使用`.F90`后缀，对于不需要预处理的代码使用`.f90`后缀。*
+
+## 检测处理器体系结构
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-02/recipe-04 中找到，包含一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+19世纪70年代，出现的64位整数运算和本世纪初出现的用于个人计算机的64位寻址，扩大了内存寻址范围，开发商投入了大量资源来移植为32位体系结构硬编码，以支持64位寻址。许多博客文章，如 https://www.viva64.com/en/a/0004/ ，致力于讨论将`C++`代码移植到64位平台中的典型问题和解决方案。虽然，避免显式硬编码的方式非常明智，但需要在使用CMake配置的代码中适应硬编码限制。本示例中，我们会来讨论检测主机处理器体系结构的选项。
+
+### 准备工作
+
+我们以下面的`arch-dependent.cpp`代码为例：
+
+```c++
+#include <cstdlib>
+#include <iostream>
+#include <string>
+
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+std::string say_hello()
+{
+  std::string arch_info(TOSTRING(ARCHITECTURE));
+  arch_info += std::string(" architecture. ");
+#ifdef IS_32_BIT_ARCH
+  return arch_info + std::string("Compiled on a 32 bit host processor.");
+#elif IS_64_BIT_ARCH
+  return arch_info + std::string("Compiled on a 64 bit host processor.");
+#else
+  return arch_info + std::string("Neither 32 nor 64 bit, puzzling ...");
+#endif
+}
+
+int main()
+{
+  std::cout << say_hello() << std::endl;
+  return EXIT_SUCCESS;
+}
+```
+
+### 具体实施
+
+`CMakeLists.txt`文件中，我们需要以下内容:
+
+1. 首先，定义可执行文件及其源文件依赖关系:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-04 LANGUAGES CXX)
+add_executable(arch-dependent arch-dependent.cpp)
+```
+
+2. 检查空指针类型的大小。CMake的`CMAKE_SIZEOF_VOID_P`变量会告诉我们CPU是32位还是64位。我们通过状态消息让用户知道检测到的大小，并设置预处理器定义:
+
+```cmake
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+  target_compile_definitions(arch-dependent PUBLIC "IS_64_BIT_ARCH")
+  message(STATUS "Target is 64 bits")
+else()
+  target_compile_definitions(arch-dependent PUBLIC "IS_32_BIT_ARCH")
+  message(STATUS "Target is 32 bits")
+endif()
+```
+
+3. 通过定义以下目标编译定义，让预处理器了解主机处理器架构，同时在配置过程中打印状态消息:
+
+```cmake
+if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "i386")
+	message(STATUS "i386 architecture detected")
+elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "i686")
+	message(STATUS "i686 architecture detected")
+elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
+	message(STATUS "x86_64 architecture detected")
+else()
+	message(STATUS "host processor architecture is unknown")
+endif()
+target_compile_definitions(arch-dependent
+  PUBLIC "ARCHITECTURE=${CMAKE_HOST_SYSTEM_PROCESSOR}"
+  )
+```
+
+4. 配置项目，并注意状态消息(打印出的信息可能会发生变化):
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+...
+-- Target is 64 bits
+-- x86_64 architecture detected
+...
+```
+
+5. 最后，构建并执行代码(实际输出将取决于处理器架构):
+
+```bash
+$ cmake --build .
+$ ./arch-dependent
+
+x86_64 architecture. Compiled on a 64 bit host processor.
+```
+
+### 工作原理
+
+CMake定义了`CMAKE_HOST_SYSTEM_PROCESSOR`变量，以包含当前运行的处理器的名称。可以设置为“i386”、“i686”、“x86_64”、“AMD64”等等，当然，这取决于当前的CPU。`CMAKE_SIZEOF_VOID_P`为void指针的大小。我们可以在CMake配置时进行查询，以便修改目标或目标编译定义。可以基于检测到的主机处理器体系结构，使用预处理器定义，确定需要编译的分支源代码。正如在前面的示例中所讨论的，编写新代码时应该避免这种依赖，但在处理遗留代码或交叉编译时，这种依赖是有用的，交叉编译会在第13章进行讨论。
+
+**NOTE**:*使用`CMAKE_SIZEOF_VOID_P`是检查当前CPU是否具有32位或64位架构的唯一“真正”可移植的方法。*
+
+### 更多信息
+
+除了`CMAKE_HOST_SYSTEM_PROCESSOR`, CMake还定义了`CMAKE_SYSTEM_PROCESSOR`变量。前者包含当前运行的CPU在CMake的名称，而后者将包含当前正在为其构建的CPU的名称。这是一个细微的差别，在交叉编译时起着非常重要的作用。我们将在第13章，看到更多关于交叉编译的内容。另一种让CMake检测主机处理器体系结构，是使用`C`或`C++中`定义的符号，结合CMake的`try_run`函数，尝试构建执行的源代码(见第5.8节)分支的预处理符号。这将返回已定义错误码，这些错误可以在CMake端捕获(此策略的灵感来自 https://github.com/axr/cmake/blob/master/targetarch.cmake ):
+
+```c++
+#if defined(__i386) || defined(__i386__) || defined(_M_IX86)
+	#error cmake_arch i386
+#elif defined(__x86_64) || defined(__x86_64__) || defined(__amd64) || defined(_M_X64)
+	#error cmake_arch x86_64
+#endif
+```
+
+这种策略也是检测目标处理器体系结构的推荐策略，因为CMake似乎没有提供可移植的内在解决方案。另一种选择，将只使用CMake，完全不使用预处理器，代价是为每种情况设置不同的源文件，然后使用`target_source`命令将其设置为可执行目标`arch-dependent`依赖的源文件:
 
 
 

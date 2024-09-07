@@ -372,6 +372,32 @@ mindmap
 
 
 
+## 各种图标
+
+[🎁 Emoji cheat sheet for GitHub, Basecamp, Slack & more (webfx.com)](https://www.webfx.com/tools/emoji-cheat-sheet/#)
+
+
+
+🌟 :star2: ⭐️ :star: 💫 :dizzy: 💥 :boom:
+💗:heartpulse: 🙏 :pray: ☀️ :sunny: 🌹 :rose:
+🌙 :crescent_moon: 🌕 :full_moon:🌝 :full_moon_with_face:
+💝 :gift_heart: 🎁:gift: 🎇 :sparkler: 🎉 :tada:
+📅 :date: 🎀:ribbon: 🍓:strawberry:🍉:watermelon:
+1️⃣ :one: 2️⃣ :two: 3️⃣:three:4️⃣ :four:
+🔱 :trident: 💯 :100: ✨ :sparkles:
+👈:point_left: 👉 :point_right:
+👆:point_up_2: ✌️ :v:
+🎊 :confetti_ball: 🔮 :crystal_ball:
+🎈 :balloon: 🎆 :fireworks:
+🔑 :key: 💰 :moneybag:
+💎 :gem: 🀄️ :mahjong:
+🍗 :poultry_leg: 🍰 :cake:
+🔆 :high_brightness: 🚀 :rocket:
+
+:camping::tent: :vertical_traffic_light: ​ :stop_sign: :rainbow:  
+
+
+
 ## 正文段落中的空格
 
 一般首行缩进2个字符，使用`&emsp;&emsp;`。
@@ -380,6 +406,8 @@ mindmap
 
 ## 插入视频
 
+使用`iframe`方式，或者使用`video` 方式，暂时遇到问题是video方式可能无法显示，iframe方式自动播放。
+
 参考代码
 
 ```bash
@@ -387,19 +415,6 @@ mindmap
 ```
 
 
-
-<video id="video" controls=""src="F:\BaiduNetdiskDownload\AI精选资料包\一：人工智能论文合集\深度学习论文精讲-BERT模型\1. 课程介绍.mp4" preload="none" style="zoom:50%;">
-
-
-
 https://typorachina.com/guide/how-tos/embed-video-media-or-web-contents.html
 
 
-
-
-
- <iframe src="//player.bilibili.com/player.html?aid=754115200&bvid=BV1kk4y1m7sT&cid=220773148&page=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>
-
-
-
-<iframe src="//player.bilibili.com/player.html?aid=754115200&bvid=BV1kk4y1m7sT&cid=220773148&page=1" scrolling="no" border="0" height="500" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>

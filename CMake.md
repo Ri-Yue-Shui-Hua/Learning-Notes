@@ -3046,27 +3046,1102 @@ CMake定义了`CMAKE_HOST_SYSTEM_PROCESSOR`变量，以包含当前运行的处�
 
 这种策略也是检测目标处理器体系结构的推荐策略，因为CMake似乎没有提供可移植的内在解决方案。另一种选择，将只使用CMake，完全不使用预处理器，代价是为每种情况设置不同的源文件，然后使用`target_source`命令将其设置为可执行目标`arch-dependent`依赖的源文件:
 
+```cmake
+add_executable(arch-dependent "")
+
+if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "i386")
+	message(STATUS "i386 architecture detected")
+	target_sources(arch-dependent
+		PRIVATE
+		arch-dependent-i386.cpp
+	)
+elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "i686")
+	message(STATUS "i686 architecture detected")
+	target_sources(arch-dependent
+		PRIVATE
+			arch-dependent-i686.cpp
+	)
+elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
+	message(STATUS "x86_64 architecture detected")
+	target_sources(arch-dependent
+		PRIVATE
+			arch-dependent-x86_64.cpp
+	)
+else()
+	message(STATUS "host processor architecture is unknown")
+endif()
+```
+
+这种方法，显然需要对现有项目进行更多的工作，因为源文件需要分离。此外，不同源文件之间的代码复制肯定也会成为问题。
+
+## 检测处理器指令集
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-02/recipe-05 中找到，包含一个C++示例。该示例在CMake 3.10版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+本示例中，我们将讨论如何在CMake的帮助下检测主机处理器支持的指令集。这个功能是较新版本添加到CMake中的，需要CMake 3.10或更高版本。检测到的主机系统信息，可用于设置相应的编译器标志，或实现可选的源代码编译，或根据主机系统生成源代码。本示例中，我们的目标是检测主机系统信息，使用预处理器定义将其传递给`C++`源代码，并将信息打印到输出中。
+
+### 准备工作
+
+我们是`C++`源码(`processor-info.cpp`)如下所示：
+
+```c++
+#include "config.h"
+
+#include <cstdlib>
+#include <iostream>
+
+int main()
+{
+  std::cout << "Number of logical cores: "
+            << NUMBER_OF_LOGICAL_CORES << std::endl;
+  std::cout << "Number of physical cores: "
+            << NUMBER_OF_PHYSICAL_CORES << std::endl;
+  std::cout << "Total virtual memory in megabytes: "
+            << TOTAL_VIRTUAL_MEMORY << std::endl;
+  std::cout << "Available virtual memory in megabytes: "
+            << AVAILABLE_VIRTUAL_MEMORY << std::endl;
+  std::cout << "Total physical memory in megabytes: "
+            << TOTAL_PHYSICAL_MEMORY << std::endl;
+  std::cout << "Available physical memory in megabytes: "
+            << AVAILABLE_PHYSICAL_MEMORY << std::endl;
+  std::cout << "Processor is 64Bit: "
+            << IS_64BIT << std::endl;
+  std::cout << "Processor has floating point unit: "
+            << HAS_FPU << std::endl;
+  std::cout << "Processor supports MMX instructions: "
+            << HAS_MMX << std::endl;
+  std::cout << "Processor supports Ext. MMX instructions: "
+            << HAS_MMX_PLUS << std::endl;
+  std::cout << "Processor supports SSE instructions: "
+            << HAS_SSE << std::endl;
+  std::cout << "Processor supports SSE2 instructions: "
+            << HAS_SSE2 << std::endl;
+  std::cout << "Processor supports SSE FP instructions: "
+            << HAS_SSE_FP << std::endl;
+  std::cout << "Processor supports SSE MMX instructions: "
+            << HAS_SSE_MMX << std::endl;
+  std::cout << "Processor supports 3DNow instructions: "
+            << HAS_AMD_3DNOW << std::endl;
+  std::cout << "Processor supports 3DNow+ instructions: "
+            << HAS_AMD_3DNOW_PLUS << std::endl;
+  std::cout << "IA64 processor emulating x86 : "
+            << HAS_IA64 << std::endl;
+  std::cout << "OS name: "
+            << OS_NAME << std::endl;
+  std::cout << "OS sub-type: "
+            << OS_RELEASE << std::endl;
+  std::cout << "OS build ID: "
+            << OS_VERSION << std::endl;
+  std::cout << "OS platform: "
+            << OS_PLATFORM << std::endl;
+  return EXIT_SUCCESS;
+}
+```
+
+其包含`config.h`头文件，我们将使用`config.h.in`生成这个文件。`config.h.in`如下:
+
+```ini
+#pragma once
+
+#define NUMBER_OF_LOGICAL_CORES @_NUMBER_OF_LOGICAL_CORES@
+#define NUMBER_OF_PHYSICAL_CORES @_NUMBER_OF_PHYSICAL_CORES@
+#define TOTAL_VIRTUAL_MEMORY @_TOTAL_VIRTUAL_MEMORY@
+#define AVAILABLE_VIRTUAL_MEMORY @_AVAILABLE_VIRTUAL_MEMORY@
+#define TOTAL_PHYSICAL_MEMORY @_TOTAL_PHYSICAL_MEMORY@
+#define AVAILABLE_PHYSICAL_MEMORY @_AVAILABLE_PHYSICAL_MEMORY@
+#define IS_64BIT @_IS_64BIT@
+#define HAS_FPU @_HAS_FPU@
+#define HAS_MMX @_HAS_MMX@
+#define HAS_MMX_PLUS @_HAS_MMX_PLUS@
+#define HAS_SSE @_HAS_SSE@
+#define HAS_SSE2 @_HAS_SSE2@
+#define HAS_SSE_FP @_HAS_SSE_FP@
+#define HAS_SSE_MMX @_HAS_SSE_MMX@
+#define HAS_AMD_3DNOW @_HAS_AMD_3DNOW@
+#define HAS_AMD_3DNOW_PLUS @_HAS_AMD_3DNOW_PLUS@
+#define HAS_IA64 @_HAS_IA64@
+#define OS_NAME "@_OS_NAME@"
+#define OS_RELEASE "@_OS_RELEASE@"
+#define OS_VERSION "@_OS_VERSION@"
+#define OS_PLATFORM "@_OS_PLATFORM@"
+```
+
+### 如何实施
+
+我们将使用CMake为平台填充`config.h`中的定义，并将示例源文件编译为可执行文件:
+
+1. 首先，我们定义了CMake最低版本、项目名称和项目语言:
+
+```cmake
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+project(recipe-05 CXX)
+```
+
+2. 然后，定义目标可执行文件及其源文件，并包括目录:
+
+```cmake
+add_executable(processor-info "")
+
+target_sources(processor-info
+  PRIVATE
+  	processor-info.cpp
+  )
+
+target_include_directories(processor-info
+  PRIVATE
+ 	  ${PROJECT_BINARY_DIR}
+  )
+```
+
+3. 继续查询主机系统的信息，获取一些关键字:
+
+```cmake
+foreach(key
+  IN ITEMS
+    NUMBER_OF_LOGICAL_CORES
+    NUMBER_OF_PHYSICAL_CORES
+    TOTAL_VIRTUAL_MEMORY
+    AVAILABLE_VIRTUAL_MEMORY
+    TOTAL_PHYSICAL_MEMORY
+    AVAILABLE_PHYSICAL_MEMORY
+    IS_64BIT
+    HAS_FPU
+    HAS_MMX
+    HAS_MMX_PLUS
+    HAS_SSE
+    HAS_SSE2
+    HAS_SSE_FP
+    HAS_SSE_MMX
+    HAS_AMD_3DNOW
+    HAS_AMD_3DNOW_PLUS
+    HAS_IA64
+    OS_NAME
+    OS_RELEASE
+    OS_VERSION
+    OS_PLATFORM
+  )
+  cmake_host_system_information(RESULT _${key} QUERY ${key})
+endforeach()
+```
+
+4. 定义了相应的变量后，配置`config.h`:
+
+```cmake
+configure_file(config.h.in config.h @ONLY)
+```
+
+5. 现在准备好配置、构建和测试项目:
+
+```cmake
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./processor-info
+
+Number of logical cores: 4
+Number of physical cores: 2
+Total virtual memory in megabytes: 15258
+Available virtual memory in megabytes: 14678
+Total physical memory in megabytes: 7858
+Available physical memory in megabytes: 4072
+Processor is 64Bit: 1
+Processor has floating point unit: 1
+Processor supports MMX instructions: 1
+Processor supports Ext. MMX instructions: 0
+Processor supports SSE instructions: 1
+Processor supports SSE2 instructions: 1
+Processor supports SSE FP instructions: 0
+Processor supports SSE MMX instructions: 0
+Processor supports 3DNow instructions: 0
+Processor supports 3DNow+ instructions: 0
+IA64 processor emulating x86 : 0
+OS name: Linux
+OS sub-type: 4.16.7-1-ARCH
+OS build ID: #1 SMP PREEMPT Wed May 2 21:12:36 UTC 2018
+OS platform: x86_64
+```
+
+6. 输出会随着处理器的不同而变化。
+
+### 工作原理
+
+`CMakeLists.txt`中的`foreach`循环会查询多个键值，并定义相应的变量。此示例的核心函数是`cmake_host_system_information`，它查询运行CMake的主机系统的系统信息。本例中，我们对每个键使用了一个函数调用。然后，使用这些变量来配置`config.h.in`中的占位符，输入并生成`config.h`。此配置使用`configure_file`命令完成。最后，`config.h`包含在`processor-info.cpp`中。编译后，它将把值打印到屏幕上。我们将在第5章(配置时和构建时操作)和第6章(生成源代码)中重新讨论这种方法。
+
+### 更多信息
+
+对于更细粒度的处理器指令集检测，请考虑以下模块: https://github.com/VcDevel/Vc/blob/master/cmake/OptimizeForArchitecture.cmake 。有时候，构建代码的主机可能与运行代码的主机不一样。在计算集群中，登录节点的体系结构可能与计算节点上的体系结构不同。解决此问题的一种方法是，将配置和编译作为计算步骤，提交并部署到相应计算节点上。
+
+##  为Eigen库使能向量化
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-02/recipe-06 中找到，包含一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+处理器的向量功能，可以提高代码的性能。对于某些类型的运算来说尤为甚之，例如：线性代数。本示例将展示如何使能矢量化，以便使用线性代数的Eigen C++库加速可执行文件。
+
+### 准备工作
+
+我们用Eigen C++模板库，用来进行线性代数计算，并展示如何设置编译器标志来启用向量化。这个示例的源代码`linear-algebra.cpp`文件:
+
+```c++
+#include <chrono>
+#include <iostream>
+
+#include <Eigen/Dense>
+
+EIGEN_DONT_INLINE
+double simple_function(Eigen::VectorXd &va, Eigen::VectorXd &vb)
+{
+  // this simple function computes the dot product of two vectors
+  // of course it could be expressed more compactly
+  double d = va.dot(vb);
+  return d;
+}
+
+int main()
+{
+  int len = 1000000;
+  int num_repetitions = 100;
+  
+  // generate two random vectors
+  Eigen::VectorXd va = Eigen::VectorXd::Random(len);
+  Eigen::VectorXd vb = Eigen::VectorXd::Random(len);
+  
+  double result;
+  auto start = std::chrono::system_clock::now();
+  for (auto i = 0; i < num_repetitions; i++)
+  {
+    result = simple_function(va, vb);
+  }
+  auto end = std::chrono::system_clock::now();
+  auto elapsed_seconds = end - start;
+  
+  std::cout << "result: " << result << std::endl;
+  std::cout << "elapsed seconds: " << elapsed_seconds.count() << std::endl;
+}
+```
+
+我们期望向量化可以加快`simple_function`中的点积操作。
+
+### 如何实施
+
+根据Eigen库的文档，设置适当的编译器标志就足以生成向量化的代码。让我们看看`CMakeLists.txt`:
+
+1. 声明一个`C++11`项目:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+project(recipe-06 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 使用Eigen库，我们需要在系统上找到它的头文件:
+
+```cmake
+find_package(Eigen3 3.3 REQUIRED CONFIG)
+```
+
+3. `CheckCXXCompilerFlag.cmake`标准模块文件:
+
+```cmake
+include(CheckCXXCompilerFlag)
+```
+
+4. 检查`-march=native`编译器标志是否工作:
+
+```cmake
+check_cxx_compiler_flag("-march=native" _march_native_works)
+```
+
+5. 另一个选项`-xHost`编译器标志也开启:
+
+```cmake
+check_cxx_compiler_flag("-xHost" _xhost_works)
+```
+
+6. 设置了一个空变量`_CXX_FLAGS`，来保存刚才检查的两个编译器中找到的编译器标志。如果看到`_march_native_works`，我们将`_CXX_FLAGS`设置为`-march=native`。如果看到`_xhost_works`，我们将`_CXX_FLAGS`设置为`-xHost`。如果它们都不起作用，`_CXX_FLAGS`将为空，并禁用矢量化:
 
 
 
+```cmake
+set(_CXX_FLAGS)
+if(_march_native_works)
+	message(STATUS "Using processor's vector instructions (-march=native compiler flag set)")
+	set(_CXX_FLAGS "-march=native")
+elseif(_xhost_works)
+	message(STATUS "Using processor's vector instructions (-xHost compiler flag set)")
+	set(_CXX_FLAGS "-xHost")
+else()
+	message(STATUS "No suitable compiler flag found for vectorization")
+endif()
+```
+
+7. 为了便于比较，我们还为未优化的版本定义了一个可执行目标，不使用优化标志:
+
+```cmake
+add_executable(linear-algebra-unoptimized linear-algebra.cpp)
+
+target_link_libraries(linear-algebra-unoptimized
+  PRIVATE
+  	Eigen3::Eigen
+  )
+```
+
+8. 此外，我们定义了一个优化版本:
+
+```cmake
+add_executable(linear-algebra linear-algebra.cpp)
+
+target_compile_options(linear-algebra
+  PRIVATE
+  	${_CXX_FLAGS}
+  )
+
+target_link_libraries(linear-algebra
+  PRIVATE
+  	Eigen3::Eigen
+  )
+```
+
+9. 让我们比较一下这两个可执行文件——首先我们配置(在本例中，`-march=native_works`):
+
+```cmake
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+...
+-- Performing Test _march_native_works
+-- Performing Test _march_native_works - Success
+-- Performing Test _xhost_works
+-- Performing Test _xhost_works - Failed
+-- Using processor's vector instructions (-march=native compiler flag set)
+...
+```
+
+10. 最后，让我们编译可执行文件，并比较运行时间:
+
+```bash
+$ cmake --build .
+$ ./linear-algebra-unoptimized
+
+result: -261.505
+elapsed seconds: 1.97964
+
+$ ./linear-algebra
+
+result: -261.505
+elapsed seconds: 1.05048
+```
+
+### 工作原理
+
+大多数处理器提供向量指令集，代码可以利用这些特性，获得更高的性能。由于线性代数运算可以从Eigen库中获得很好的加速，所以在使用Eigen库时，就要考虑向量化。我们所要做的就是，指示编译器为我们检查处理器，并为当前体系结构生成本机指令。不同的编译器供应商会使用不同的标志来实现这一点：GNU编译器使用`-march=native`标志来实现这一点，而Intel编译器使用`-xHost`标志。使用`CheckCXXCompilerFlag.cmake`模块提供的`check_cxx_compiler_flag`函数进行编译器标志的检查:
+
+```cmake
+check_cxx_compiler_flag("-march=native" _march_native_works)
+```
+
+这个函数接受两个参数:
+
+- 第一个是要检查的编译器标志。
+- 第二个是用来存储检查结果(true或false)的变量。如果检查为真，我们将工作标志添加到`_CXX_FLAGS`变量中，该变量将用于为可执行目标设置编译器标志。
+
+### 更多信息
+
+本示例可与前一示例相结合，可以使用`cmake_host_system_information`查询处理器功能。
 
 
 
+# CMake 完整使用教程 之四 检测外部库和程序
 
 
 
+本章中主要内容有:
+
+- 检测Python解释器
+- 检测Python库
+- 检测Python模块和包
+- 检测BLAS和LAPACK数学库
+- 检测OpenMP并行环境
+- 检测MPI并行环境
+- 检测Eigen库
+- 检测Boost库
+- 检测外部库:Ⅰ. 使用pkg-config
+- 检测外部库:Ⅱ. 书写find模块
+
+我们的项目常常会依赖于其他项目和库。本章将演示，如何检测外部库、框架和项目，以及如何链接到这些库。CMake有一组预打包模块，用于检测常用库和程序，例如：Python和Boost。可以使用`cmake --help-module-list`获得现有模块的列表。但是，不是所有的库和程序都包含在其中，有时必须自己编写检测脚本。本章将讨论相应的工具，了解CMake的`find`族命令:
+
+- **find_file**：在相应路径下查找命名文件
+- **find_library**：查找一个库文件
+- **find_package**：从外部项目查找和加载设置
+- **find_path**：查找包含指定文件的目录
+- **find_program**：找到一个可执行程序
+
+**NOTE**:*可以使用`--help-command`命令行显示CMake内置命令的打印文档。*
+
+## 检测Python解释器
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-01 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+Python是一种非常流行的语言。许多项目用Python编写的工具，从而将主程序和库打包在一起，或者在配置或构建过程中使用Python脚本。这种情况下，确保运行时对Python解释器的依赖也需要得到满足。本示例将展示如何检测和使用Python解释器。
+
+我们将介绍`find_package`命令，这个命令将贯穿本章。
+
+### 具体实施
+
+我们将逐步建立`CMakeLists.txt`文件:
+
+1. 首先，定义CMake最低版本和项目名称。注意，这里不需要任何语言支持:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-01 LANGUAGES NONE)
+```
+
+2. 然后，使用`find_package`命令找到Python解释器:
+
+```cmake
+find_package(PythonInterp REQUIRED)
+```
+
+3. 然后，执行Python命令并捕获它的输出和返回值:
+
+```cmake
+execute_process(
+  COMMAND
+  	${PYTHON_EXECUTABLE} "-c" "print('Hello, world!')"
+  RESULT_VARIABLE _status
+  OUTPUT_VARIABLE _hello_world
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+```
+
+4. 最后，打印Python命令的返回值和输出:
+
+```cmake
+message(STATUS "RESULT_VARIABLE is: ${_status}")
+message(STATUS "OUTPUT_VARIABLE is: ${_hello_world}")
+```
+
+5. 配置项目:
+
+```cmake
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+-- Found PythonInterp: /usr/bin/python (found version "3.6.5")
+-- RESULT_VARIABLE is: 0
+-- OUTPUT_VARIABLE is: Hello, world!
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/cmake-cookbook/chapter-03/recipe-01/example/build
+```
+
+### 工作原理
+
+`find_package`是用于发现和设置包的CMake模块的命令。这些模块包含CMake命令，用于标识系统标准位置中的包。CMake模块文件称为`Find<name>.cmake`，当调用`find_package(<name>)`时，模块中的命令将会运行。
+
+除了在系统上实际查找包模块之外，查找模块还会设置了一些有用的变量，反映实际找到了什么，也可以在自己的`CMakeLists.txt`中使用这些变量。对于Python解释器，相关模块为`FindPythonInterp.cmake`附带的设置了一些CMake变量:
+
+- **PYTHONINTERP_FOUND**：是否找到解释器
+- **PYTHON_EXECUTABLE**：Python解释器到可执行文件的路径
+- **PYTHON_VERSION_STRING**：Python解释器的完整版本信息
+- **PYTHON_VERSION_MAJOR**：Python解释器的主要版本号
+- **PYTHON_VERSION_MINOR** ：Python解释器的次要版本号
+- **PYTHON_VERSION_PATCH**：Python解释器的补丁版本号
+
+可以强制CMake，查找特定版本的包。例如，要求Python解释器的版本大于或等于2.7：`find_package(PythonInterp 2.7)`
+
+可以强制满足依赖关系:
+
+```cmake
+find_package(PythonInterp REQUIRED)
+```
+
+如果在查找位置中没有找到适合Python解释器的可执行文件，CMake将中止配置。
+
+**TIPS**:*CMake有很多查找软件包的模块。我们建议在CMake在线文档中查询`Find<package>.cmake`模块，并在使用它们之前详细阅读它们的文档。`find_package`命令的文档可以参考 https://cmake.org/cmake/help/v3.5/command/find_ackage.html 。在线文档的一个很好的替代方法是浏览 https://github.com/Kitware/CMake/tree/master/Modules 中的CMake模块源代码——它们记录了模块使用的变量，以及模块可以在`CMakeLists.txt`中使用的变量。*
+
+### 更多信息
+
+软件包没有安装在标准位置时，CMake无法正确定位它们。用户可以使用CLI的`-D`参数传递相应的选项，告诉CMake查看特定的位置。Python解释器可以使用以下配置:
+
+```bash
+$ cmake -D PYTHON_EXECUTABLE=/custom/location/python ..
+```
+
+这将指定非标准`/custom/location/python`安装目录中的Python可执行文件。
+
+**NOTE**:*每个包都是不同的，`Find<package>.cmake`模块试图提供统一的检测接口。当CMake无法找到模块包时，我们建议您阅读相应检测模块的文档，以了解如何正确地使用CMake模块。可以在终端中直接浏览文档，本例中可使用`cmake --help-module FindPythonInterp`查看。*
+
+除了检测包之外，我们还想提到一个便于打印变量的helper模块。本示例中，我们使用了以下方法:
+
+```cmake
+message(STATUS "RESULT_VARIABLE is: ${_status}")
+message(STATUS "OUTPUT_VARIABLE is: ${_hello_world}")
+```
+
+使用以下工具进行调试:
+
+```cmake
+include(CMakePrintHelpers)
+cmake_print_variables(_status _hello_world)
+```
+
+将产生以下输出:
+
+```bash
+-- _status="0" ; _hello_world="Hello, world!"
+```
+
+有关打印属性和变量的更多信息，请参考 https://cmake.org/cmake/help/v3.5/module/CMakePrintHelpers.html 。
+
+##  检测Python库
+
+**NOTE**:*此示例代码可以在 https://github.com/devcafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-02 中找到，有一个C示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+可以使用Python工具来分析和操作程序的输出。然而，还有更强大的方法可以将解释语言(如Python)与编译语言(如C或C++)组合在一起使用。一种是扩展Python，通过编译成共享库的C或C++模块在这些类型上提供新类型和新功能，这是第9章的主题。另一种是将Python解释器嵌入到C或C++程序中。两种方法都需要下列条件:
+
+- Python解释器的工作版本
+- Python头文件Python.h的可用性
+- Python运行时库libpython
+
+三个组件所使用的Python版本必须相同。我们已经演示了如何找到Python解释器；本示例中，我们将展示另外两种方式。
+
+### 准备工作
+
+我们将一个简单的Python代码，嵌入到C程序中，可以在Python文档页面上找到。源文件称为`hello-embedded-python.c`:
+
+```cmake
+#include <Python.h>
+
+int main(int argc, char *argv[]) {
+  Py_SetProgramName(argv[0]); /* optional but recommended */
+  Py_Initialize();
+  PyRun_SimpleString("from time import time,ctime\n"
+                     "print 'Today is',ctime(time())\n");
+  Py_Finalize();
+  return 0;
+}
+```
+
+此代码将在程序中初始化Python解释器的实例，并使用Python的`time`模块，打印日期。
+
+**NOTE**:*嵌入代码可以在Python文档页面的 https://docs.python.org/2/extending/embedding.html 和 https://docs.python.org/3/extending/embedding.html 中找到。*
+
+### 具体实施
+
+以下是`CMakeLists.txt`中的步骤:
+
+1. 包含CMake最低版本、项目名称和所需语言:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-02 LANGUAGES C)
+```
+
+2. 制使用C99标准，这不严格要求与Python链接，但有时你可能需要对Python进行连接:
+
+```cmake
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+```
+
+3. 找到Python解释器。这是一个`REQUIRED`依赖:
+
+```cmake
+find_package(PythonInterp REQUIRED)
+```
+
+4. 找到Python头文件和库的模块，称为`FindPythonLibs.cmake`:
+
+```cmake
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+```
+
+5. 使用`hello-embedded-python.c`源文件，添加一个可执行目标:
+
+```cmake
+add_executable(hello-embedded-python hello-embedded-python.c)
+```
+
+6. 可执行文件包含`Python.h`头文件。因此，这个目标的`include`目录必须包含Python的`include`目录，可以通过`PYTHON_INCLUDE_DIRS`变量进行指定:
+
+```cmake
+target_include_directories(hello-embedded-python
+  PRIVATE
+  	${PYTHON_INCLUDE_DIRS}
+	)
+```
+
+7. 最后，将可执行文件链接到Python库，通过`PYTHON_LIBRARIES`变量访问:
+
+```cmake
+target_link_libraries(hello-embedded-python
+  PRIVATE
+  	${PYTHON_LIBRARIES}
+	)
+```
+
+8. 现在，进行构建:
+
+```cmake
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+...
+-- Found PythonInterp: /usr/bin/python (found version "3.6.5")
+-- Found PythonLibs: /usr/lib/libpython3.6m.so (found suitable exact version "3.6.5")
+```
+
+9. 最后，执行构建，并运行可执行文件:
+
+```bash
+$ cmake --build .
+$ ./hello-embedded-python
+
+Today is Thu Jun 7 22:26:02 2018
+```
+
+### 工作原理
+
+`FindPythonLibs.cmake`模块将查找Python头文件和库的标准位置。由于，我们的项目需要这些依赖项，如果没有找到这些依赖项，将停止配置，并报出错误。
+
+注意，我们显式地要求CMake检测安装的Python可执行文件。这是为了确保可执行文件、头文件和库都有一个匹配的版本。这对于不同版本，可能在运行时导致崩溃。我们通过`FindPythonInterp.cmake`中定义的`PYTHON_VERSION_MAJOR`和`PYTHON_VERSION_MINOR`来实现:
+
+```cmake
+find_package(PythonInterp REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+```
+
+使用`EXACT`关键字，限制CMake检测特定的版本，在本例中是匹配的相应Python版本的包括文件和库。我们可以使用`PYTHON_VERSION_STRING`变量，进行更接近的匹配:
+
+```cmake
+find_package(PythonInterp REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_STRING} EXACT REQUIRED)
+```
+
+### 更多信息
+
+当Python不在标准安装目录中，我们如何确定Python头文件和库的位置是正确的？对于Python解释器，可以通过CLI的`-D`选项传递`PYTHON_LIBRARY`和`PYTHON_INCLUDE_DIR`选项来强制CMake查找特定的目录。这些选项指定了以下内容:
+
+- **PYTHON_LIBRARY**：指向Python库的路径
+- **PYTHON_INCLUDE_DIR**：Python.h所在的路径
+
+这样，就能获得所需的Python版本。
+
+**TIPS**:*有时需要将`-D PYTHON_EXECUTABLE`、`-D PYTHON_LIBRARY`和`-D PYTHON_INCLUDE_DIR`传递给CMake CLI，以便找到及定位相应的版本的组件。*
+
+要将Python解释器及其开发组件匹配为完全相同的版本可能非常困难，对于那些将它们安装在非标准位置或系统上安装了多个版本的情况尤其如此。CMake 3.12版本中增加了新的Python检测模块，旨在解决这个棘手的问题。我们`CMakeLists.txt`的检测部分也将简化为:
+
+```cmake
+find_package(Python COMPONENTS Interpreter Development REQUIRED)
+```
+
+我们建议您阅读新模块的文档，地址是: https://cmake.org/cmake/help/v3.12/module/FindPython.html
+
+## 检测Python模块和包
+
+**NOTE**:*此示例代码可以在 https://github.com/devcafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-03 中找到，包含一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+前面的示例中，我们演示了如何检测Python解释器，以及如何编译一个简单的C程序(嵌入Python解释器)。通常，代码将依赖于特定的Python模块，无论是Python工具、嵌入Python的程序，还是扩展Python的库。例如，科学界非常流行使用NumPy处理矩阵问题。依赖于Python模块或包的项目中，确定满足对这些Python模块的依赖非常重要。本示例将展示如何探测用户的环境，以找到特定的Python模块和包。
+
+### 准备工作
+
+我们将尝试在C++程序中嵌入一个稍微复杂一点的例子。这个示例再次引用[Python在线文档](https://docs.python.org/3.5/extending/embedding.html#pureembedded)，并展示了如何通过调用编译后的C++可执行文件，来执行用户定义的Python模块中的函数。
+
+Python 3示例代码(`Py3-pure-embedding.cpp`)包含以下源代码(请参见https://docs.python.org/2/extending/embedding.html#pure-embedded 与Python 2代码等效):
+
+```c++
+#include <Python.h>
+int main(int argc, char* argv[]) {
+  PyObject* pName, * pModule, * pDict, * pFunc;
+  PyObject* pArgs, * pValue;
+  int i;
+  if (argc < 3) {
+    fprintf(stderr, "Usage: pure-embedding pythonfile funcname [args]\n");
+    return 1;
+  }
+  Py_Initialize();
+  PyRun_SimpleString("import sys");
+  PyRun_SimpleString("sys.path.append(\".\")");
+  pName = PyUnicode_DecodeFSDefault(argv[1]);
+  /* Error checking of pName left out */
+  pModule = PyImport_Import(pName);
+  Py_DECREF(pName);
+  if (pModule != NULL) {
+    pFunc = PyObject_GetAttrString(pModule, argv[2]);
+    /* pFunc is a new reference */
+    if (pFunc && PyCallable_Check(pFunc)) {
+      pArgs = PyTuple_New(argc - 3);
+      for (i = 0; i < argc - 3; ++i) {
+        pValue = PyLong_FromLong(atoi(argv[i + 3]));
+        if (!pValue) {
+          Py_DECREF(pArgs);
+          Py_DECREF(pModule);
+          fprintf(stderr, "Cannot convert argument\n");
+          return 1;
+        }
+        /* pValue reference stolen here: */
+        PyTuple_SetItem(pArgs, i, pValue);
+      }
+      pValue = PyObject_CallObject(pFunc, pArgs);
+      Py_DECREF(pArgs);
+      if (pValue != NULL) {
+        printf("Result of call: %ld\n", PyLong_AsLong(pValue));
+        Py_DECREF(pValue);
+      }
+      else {
+        Py_DECREF(pFunc);
+        Py_DECREF(pModule);
+        PyErr_Print();
+        fprintf(stderr, "Call failed\n");
+        return 1;
+      }
+    }
+    else {
+      if (PyErr_Occurred())
+        PyErr_Print();
+      fprintf(stderr, "Cannot find function \"%s\"\n", argv[2]);
+    }
+    Py_XDECREF(pFunc);
+    Py_DECREF(pModule);
+  }
+  else {
+    PyErr_Print();
+    fprintf(stderr, "Failed to load \"%s\"\n", argv[1]);
+    return 1;
+  }
+  Py_Finalize();
+  return 0;
+}
+```
 
 
 
+我们希望嵌入的Python代码(`use_numpy.py`)使用NumPy设置一个矩阵，所有矩阵元素都为1.0:
 
+```python
+import numpy as np
+def print_ones(rows, cols):
+  A = np.ones(shape=(rows, cols), dtype=float)
+  print(A)
+  
+  # we return the number of elements to verify
+  # that the C++ code is able to receive return values
+  num_elements = rows*cols
+  return(num_elements)
+```
 
+### 具体实施
 
+下面的代码中，我们能够使用CMake检查NumPy是否可用。我们需要确保Python解释器、头文件和库在系统上是可用的。然后，将再来确认NumPy的可用性：
 
+1. 首先，我们定义了最低CMake版本、项目名称、语言和C++标准:
 
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
 
+2. 查找解释器、头文件和库的方法与前面的方法完全相同:
 
+```cmake
+find_package(PythonInterp REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+```
 
+3. 正确打包的Python模块，指定安装位置和版本。可以在`CMakeLists.txt`中执行Python脚本进行探测:
 
+```cmake
+execute_process(
+  COMMAND
+  	${PYTHON_EXECUTABLE} "-c" "import re, numpy; print(re.compile('/__init__.py.*').sub('',numpy.__file__))"
+  RESULT_VARIABLE _numpy_status
+  OUTPUT_VARIABLE _numpy_location
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+```
+
+4. 如果找到NumPy，则`_numpy_status`变量为整数，否则为错误的字符串，而`_numpy_location`将包含NumPy模块的路径。如果找到NumPy，则将它的位置保存到一个名为`NumPy`的新变量中。注意，新变量被缓存，这意味着CMake创建了一个持久性变量，用户稍后可以修改该变量:
+
+```cmake
+if(NOT _numpy_status)
+	set(NumPy ${_numpy_location} CACHE STRING "Location of NumPy")
+endif()
+```
+
+5. 下一步是检查模块的版本。同样，我们在`CMakeLists.txt`中施加了一些Python魔法，将版本保存到`_numpy_version`变量中:
+
+```cmake
+execute_process(
+  COMMAND
+  	${PYTHON_EXECUTABLE} "-c" "import numpy; print(numpy.__version__)"
+  OUTPUT_VARIABLE _numpy_version
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+```
+
+6. 最后，`FindPackageHandleStandardArgs`的CMake包以正确的格式设置`NumPy_FOUND`变量和输出信息:
+
+```cmake
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(NumPy
+  FOUND_VAR NumPy_FOUND
+  REQUIRED_VARS NumPy
+  VERSION_VAR _numpy_version
+  )
+```
+
+7. 一旦正确的找到所有依赖项，我们就可以编译可执行文件，并将其链接到Python库:
+
+```cmake
+dd_executable(pure-embedding "")
+
+target_sources(pure-embedding
+  PRIVATE
+  	Py${PYTHON_VERSION_MAJOR}-pure-embedding.cpp
+  )
+  
+target_include_directories(pure-embedding
+  PRIVATE
+  	${PYTHON_INCLUDE_DIRS}
+  )
+  
+target_link_libraries(pure-embedding
+  PRIVATE
+  	${PYTHON_LIBRARIES}
+  )
+```
+
+8. 我们还必须保证`use_numpy.py`在`build`目录中可用:
+
+```cmake
+add_custom_command(
+  OUTPUT
+  	${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  COMMAND
+  	${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+ 	 ${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  DEPENDS
+  	${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+  )
+  
+# make sure building pure-embedding triggers the above custom command
+target_sources(pure-embedding
+  PRIVATE
+  	${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  )
+```
+
+9. 现在，我们可以测试嵌入的代码:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+-- ...
+-- Found PythonInterp: /usr/bin/python (found version "3.6.5")
+-- Found PythonLibs: /usr/lib/libpython3.6m.so (found suitable exact version "3.6.5")
+-- Found NumPy: /usr/lib/python3.6/site-packages/numpy (found version "1.14.3")
+
+$ cmake --build .
+$ ./pure-embedding use_numpy print_ones 2 3
+
+[[1. 1. 1.]
+[1. 1. 1.]]
+Result of call: 6
+```
+
+### 工作原理
+
+例子中有三个新的CMake命令，需要`include(FindPackageHandleStandardArgs)`：
+
+- `execute_process`
+- `add_custom_command`
+- `find_package_handle_standard_args`
+
+`execute_process`将作为通过子进程执行一个或多个命令。最后，子进程返回值将保存到变量作为参数，传递给`RESULT_VARIABLE`，而管道标准输出和标准错误的内容将被保存到变量作为参数传递给`OUTPUT_VARIABLE`和`ERROR_VARIABLE`。`execute_process`可以执行任何操作，并使用它们的结果来推断系统配置。本例中，用它来确保NumPy可用，然后获得模块版本。
+
+`find_package_handle_standard_args`提供了，用于处理与查找相关程序和库的标准工具。引用此命令时，可以正确的处理与版本相关的选项(`REQUIRED`和`EXACT`)，而无需更多的CMake代码。稍后将介绍`QUIET`和`COMPONENTS`选项。本示例中，使用了以下方法:
+
+```cmake
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(NumPy
+  FOUND_VAR NumPy_FOUND
+  REQUIRED_VARS NumPy
+  VERSION_VAR _numpy_version
+  )
+```
+
+所有必需的变量都设置为有效的文件路径(NumPy)后，发送到模块(`NumPy_FOUND`)。它还将版本保存在可传递的版本变量(`_numpy_version`)中并打印:
+
+```bash
+-- Found NumPy: /usr/lib/python3.6/site-packages/numpy (found version "1.14.3")
+```
+
+目前的示例中，没有进一步使用这些变量。如果返回`NumPy_FOUND`为`FALSE`，则停止配置。
+
+最后，将`use_numpy.py`复制到`build`目录，对代码进行注释:
+
+```cmake
+add_custom_command(
+  OUTPUT
+  	${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  COMMAND
+  	${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+  	${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  DEPENDS
+  	${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+  )
+	
+target_sources(pure-embedding
+  PRIVATE
+  	${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  )
+```
+
+我们也可以使用`file(COPY…)`命令来实现复制。这里，我们选择使用`add_custom_command`，来确保文件在每次更改时都会被复制，而不仅仅是第一次运行配置时。我们将在第5章更详细地讨论`add_custom_command`。还要注意`target_sources`命令，它将依赖项添加到`${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py`；这样做是为了确保构建目标，能够触发之前的命令。
+
+## 检测BLAS和LAPACK数学库
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-04 中找到，有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+许多数据算法严重依赖于矩阵和向量运算。例如：矩阵-向量和矩阵-矩阵乘法，求线性方程组的解，特征值和特征向量的计算或奇异值分解。这些操作在代码库中非常普遍，因为操作的数据量比较大，因此高效的实现有绝对的必要。幸运的是，有专家库可用：基本线性代数子程序(BLAS)和线性代数包(LAPACK)，为许多线性代数操作提供了标准API。供应商有不同的实现，但都共享API。虽然，用于数学库底层实现，实际所用的编程语言会随着时间而变化(Fortran、C、Assembly)，但是也都是Fortran调用接口。考虑到调用街扩，本示例中的任务要链接到这些库，并展示如何用不同语言编写的库。
+
+### 准备工作
+
+为了展示数学库的检测和连接，我们编译一个C++程序，将矩阵的维数作为命令行输入，生成一个随机的方阵**A**，一个随机向量**b**，并计算线性系统方程: **Ax = b**。另外，将对向量**b**的进行随机缩放。这里，需要使用的子程序是BLAS中的DSCAL和LAPACK中的DGESV来求线性方程组的解。示例C++代码的清单( `linear-algebra.cpp`)：
+
+```c++
+#include "CxxBLAS.hpp"
+#include "CxxLAPACK.hpp"
+
+#include <iostream>
+#include <random>
+#include <vector>
+
+int main(int argc, char** argv) {
+  if (argc != 2) {
+    std::cout << "Usage: ./linear-algebra dim" << std::endl;
+    return EXIT_FAILURE;
+  }
+  
+  // Generate a uniform distribution of real number between -1.0 and 1.0
+  std::random_device rd;
+  std::mt19937 mt(rd());
+  std::uniform_real_distribution<double> dist(-1.0, 1.0);
+  
+  // Allocate matrices and right-hand side vector
+  int dim = std::atoi(argv[1]);
+  std::vector<double> A(dim * dim);
+  std::vector<double> b(dim);
+  std::vector<int> ipiv(dim);
+  // Fill matrix and RHS with random numbers between -1.0 and 1.0
+  for (int r = 0; r < dim; r++) {
+    for (int c = 0; c < dim; c++) {
+      A[r + c * dim] = dist(mt);
+    }
+    b[r] = dist(mt);
+  }
+  
+  // Scale RHS vector by a random number between -1.0 and 1.0
+  C_DSCAL(dim, dist(mt), b.data(), 1);
+  std::cout << "C_DSCAL done" << std::endl;
+  
+  // Save matrix and RHS
+  std::vector<double> A1(A);
+  std::vector<double> b1(b);
+  int info;
+  info = C_DGESV(dim, 1, A.data(), dim, ipiv.data(), b.data(), dim);
+  std::cout << "C_DGESV done" << std::endl;
+  std::cout << "info is " << info << std::endl;
+  
+  double eps = 0.0;
+  for (int i = 0; i < dim; ++i) {
+    double sum = 0.0;
+    for (int j = 0; j < dim; ++j)
+      sum += A1[i + j * dim] * b[j];
+    eps += std::abs(b1[i] - sum);
+  }
+  std::cout << "check is " << eps << std::endl;
+  
+  return 0;
+}
+```
+
+使用C++11的随机库来生成-1.0到1.0之间的随机分布。`C_DSCAL`和`C_DGESV`分别是到BLAS和LAPACK库的接口。为了避免名称混淆，将在下面来进一步讨论CMake模块：
+
+文件`CxxBLAS.hpp`用`extern "C"`封装链接BLAS:
+
+```c++
+#pragma once
+#include "fc_mangle.h"
+#include <cstddef>
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void DSCAL(int *n, double *alpha, double *vec, int *inc);
+#ifdef __cplusplus
+}
+#endif
+void C_DSCAL(size_t length, double alpha, double *vec, int inc);
+
+```
+
+对应的实现文件`CxxBLAS.cpp`:
+
+```c++
+#include "CxxBLAS.hpp"
+
+#include <climits>
+
+// see http://www.netlib.no/netlib/blas/dscal.f
+void C_DSCAL(size_t length, double alpha, double *vec, int inc) {
+  int big_blocks = (int)(length / INT_MAX);
+  int small_size = (int)(length % INT_MAX);
+  for (int block = 0; block <= big_blocks; block++) {
+    double *vec_s = &vec[block * inc * (size_t)INT_MAX];
+    signed int length_s = (block == big_blocks) ? small_size : INT_MAX;
+    ::DSCAL(&length_s, &alpha, vec_s, &inc);
+  }
+}
+```
+
+`CxxLAPACK.hpp`和`CxxLAPACK.cpp`为LAPACK调用执行相应的转换。
+
+### 具体实施
+
+对应的`CMakeLists.txt`包含以下构建块:
+
+1. 我们定义了CMake最低版本，项目名称和支持的语言:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-04 LANGUAGES CXX C Fortran)
+```
+
+2. 使用C++11标准:
+
+```cmake
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
 
 
 

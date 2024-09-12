@@ -4143,6 +4143,2973 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 ```
 
+3. 此外，我们验证Fortran和C/C++编译器是否能协同工作，并生成头文件，这个文件可以处理名称混乱。两个功能都由`FortranCInterface`模块提供:
+
+```cmake
+include(FortranCInterface)
+
+FortranCInterface_VERIFY(CXX)
+
+FortranCInterface_HEADER(
+  fc_mangle.h
+  MACRO_NAMESPACE "FC_"
+  SYMBOLS DSCAL DGESV
+  )
+```
+
+4. 然后，找到BLAS和LAPACK:
+
+```cmake
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+```
+
+5. 接下来，添加一个库，其中包含BLAS和LAPACK包装器的源代码，并链接到`LAPACK_LIBRARIES`，其中也包含`BLAS_LIBRARIES`:
+
+```cmake
+add_library(math "")
+
+target_sources(math
+  PRIVATE
+    CxxBLAS.cpp
+    CxxLAPACK.cpp
+  )
+  
+target_include_directories(math
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+  )
+  
+target_link_libraries(math
+  PUBLIC
+  	${LAPACK_LIBRARIES}
+  )
+```
+
+6. 注意，目标的包含目录和链接库声明为`PUBLIC`，因此任何依赖于数学库的附加目标也将在其包含目录中。
+7. 最后，我们添加一个可执行目标并链接`math`：
+
+```cmake
+add_executable(linear-algebra "")
+
+target_sources(linear-algebra
+  PRIVATE
+  	linear-algebra.cpp
+  )
+
+target_link_libraries(linear-algebra
+  PRIVATE
+  	math
+  )
+```
+
+8. 配置时，我们可以关注相关的打印输出:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+...
+-- Detecting Fortran/C Interface
+-- Detecting Fortran/C Interface - Found GLOBAL and MODULE mangling
+-- Verifying Fortran/C Compiler Compatibility
+-- Verifying Fortran/C Compiler Compatibility - Success
+...
+-- Found BLAS: /usr/lib/libblas.so
+...
+-- A library with LAPACK API found.
+...
+```
+
+9. 最后，构建并测试可执行文件:
+
+```bash
+$ cmake --build .
+$ ./linear-algebra 1000
+
+C_DSCAL done
+C_DGESV done
+info is 0
+check is 1.54284e-10
+```
+
+### 工作原理
+
+`FindBLAS.cmake`和`FindLAPACK.cmake`将在标准位置查找BLAS和LAPACK库。对于前者，该模块有`SGEMM`函数的Fortran实现，一般用于单精度矩阵乘积。对于后者，该模块有`CHEEV`函数的Fortran实现，用于计算复杂厄米矩阵的特征值和特征向量。查找在CMake内部，通过编译一个小程序来完成，该程序调用这些函数，并尝试链接到候选库。如果失败，则表示相应库不存于系统上。
+
+生成机器码时，每个编译器都会处理符号混淆，不幸的是，这种操作并不通用，而与编译器相关。为了解决这个问题，我们使用`FortranCInterface`模块( https://cmake.org/cmake/help/v3.5/module/FortranCInterface.html )验证Fortran和C/C++能否混合编译，然后生成一个Fortran-C接口头文件`fc_mangle.h`，这个文件用来解决编译器性的问题。然后，必须将生成的`fc_mann .h`包含在接口头文件`CxxBLAS.hpp`和`CxxLAPACK.hpp`中。为了使用`FortranCInterface`，我们需要在`LANGUAGES`列表中添加C和Fortran支持。当然，也可以定义自己的预处理器定义，但是可移植性会差很多。
+
+我们将在第9章中更详细地讨论Fortran和C的互操作性。
+
+**NOTE**:*目前，BLAS和LAPACK的许多实现已经在Fortran外附带了一层C包装。这些包装器多年来已经标准化，称为CBLAS和LAPACKE。*
+
+### 更多信息
+
+许多算法代码比较依赖于矩阵代数运算，使用BLAS和LAPACK API的高性能实现就非常重要了。供应商为不同的体系结构和并行环境提供不同的库，`FindBLAS.cmake`和`FindLAPACK.cmake`可能的无法定位到当前库。如果发生这种情况，可以通过`-D`选项显式地从CLI对库进行设置。
+
+## 检测OpenMP的并行环境
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-05 中找到，有一个C++和一个Fortran示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-05 中也有一个适用于CMake 3.5的示例。*
+
+目前，市面上的计算机几乎都是多核机器，对于性能敏感的程序，我们必须关注这些多核处理器，并在编程模型中使用并发。OpenMP是多核处理器上并行性的标准之一。为了从OpenMP并行化中获得性能收益，通常不需要修改或重写现有程序。一旦确定了代码中的性能关键部分，例如：使用分析工具，程序员就可以通过预处理器指令，指示编译器为这些区域生成可并行的代码。
+
+本示例中，我们将展示如何编译一个包含OpenMP指令的程序(前提是使用一个支持OpenMP的编译器)。有许多支持OpenMP的Fortran、C和C++编译器。对于相对较新的CMake版本，为OpenMP提供了非常好的支持。本示例将展示如何在使用CMake 3.9或更高版本时，使用简单C++和Fortran程序来链接到OpenMP。
+
+**NOTE**:*根据Linux发行版的不同，Clang编译器的默认版本可能不支持OpenMP。使用或非苹果版本的Clang(例如，Conda提供的)或GNU编译器,除非单独安装libomp库(https://iscinumpy.gitlab.io/post/omp-on-high-sierra/ )，否则本节示例将无法在macOS上工作。*
+
+### 准备工作
+
+C和C++程序可以通过包含`omp.h`头文件和链接到正确的库，来使用OpenMP功能。编译器将在性能关键部分之前添加预处理指令，并生成并行代码。在本示例中，我们将构建以下示例源代码(`example.cpp`)。这段代码从1到N求和，其中N作为命令行参数:
+
+```cmake
+#include <iostream>
+#include <omp.h>
+#include <string>
+
+int main(int argc, char *argv[])
+{
+  std::cout << "number of available processors: " << omp_get_num_procs()
+            << std::endl;
+  std::cout << "number of threads: " << omp_get_max_threads() << std::endl;
+  auto n = std::stol(argv[1]);
+  std::cout << "we will form sum of numbers from 1 to " << n << std::endl;
+  // start timer
+  auto t0 = omp_get_wtime();
+  auto s = 0LL;
+#pragma omp parallel for reduction(+ : s)
+  for (auto i = 1; i <= n; i++)
+  {
+    s += i;
+  }
+  // stop timer
+  auto t1 = omp_get_wtime();
+
+  std::cout << "sum: " << s << std::endl;
+  std::cout << "elapsed wall clock time: " << t1 - t0 << " seconds" << std::endl;
+  
+  return 0;
+}
+```
+
+在Fortran语言中，需要使用`omp_lib`模块并链接到库。在性能关键部分之前的代码注释中，可以再次使用并行指令。例如：`F90`需要包含以下内容:
+
+
+
+```fortran
+program example
+
+  use omp_lib
+  
+  implicit none
+  
+  integer(8) :: i, n, s
+  character(len=32) :: arg
+  real(8) :: t0, t1
+  
+  print *, "number of available processors:", omp_get_num_procs()
+  print *, "number of threads:", omp_get_max_threads()
+  
+  call get_command_argument(1, arg)
+  read(arg , *) n
+  
+  print *, "we will form sum of numbers from 1 to", n
+  
+  ! start timer
+  t0 = omp_get_wtime()
+  
+  s = 0
+!$omp parallel do reduction(+:s)
+  do i = 1, n
+  s = s + i
+  end do
+  
+  ! stop timer
+  t1 = omp_get_wtime()
+  
+  print *, "sum:", s
+  print *, "elapsed wall clock time (seconds):", t1 - t0
+  
+end program
+```
+
+### 具体实施
+
+对于C++和Fortran的例子，`CMakeLists.txt`将遵循一个模板，该模板在这两种语言上很相似：
+
+1. 两者都定义了CMake最低版本、项目名称和语言(CXX或Fortran；我们将展示C++版本):
+
+```cmake
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+project(recipe-05 LANGUAGES CXX)
+```
+
+2. 使用C++11标准:
+
+```cmake
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+3. 调用find_package来搜索OpenMP:
+
+```cmake
+find_package(OpenMP REQUIRED)
+```
+
+4. 最后，我们定义可执行目标，并链接到FindOpenMP模块提供的导入目标(在Fortran的情况下，我们链接到`OpenMP::OpenMP_Fortran`):
+
+```cmake
+add_executable(example example.cpp)
+target_link_libraries(example
+  PUBLIC
+  	OpenMP::OpenMP_CXX
+  )
+```
+
+5. 现在，可以配置和构建代码了:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+```
+
+6. 并行测试(在本例中使用了4个内核):
+
+```bash
+$ ./example 1000000000
+
+number of available processors: 4
+number of threads: 4
+we will form sum of numbers from 1 to 1000000000
+sum: 500000000500000000
+elapsed wall clock time: 1.08343 seconds
+```
+
+7. 为了比较，我们可以重新运行这个例子，并将OpenMP线程的数量设置为1:
+
+```bash
+$ env OMP_NUM_THREADS=1 ./example 1000000000
+
+number of available processors: 4
+number of threads: 1
+we will form sum of numbers from 1 to 1000000000
+sum: 500000000500000000
+elapsed wall clock time: 2.96427 seconds
+
+```
+
+### 工作原理
+
+我们的示例很简单：编译代码，并运行在多个内核上时，我们会看到加速效果。加速效果并不是`OMP_NUM_THREADS`的倍数，不过本示例中并不关心，因为我们更关注的是如何使用CMake配置需要使用OpenMP的项目。我们发现链接到OpenMP非常简单，这要感谢`FindOpenMP`模块:
+
+```cmake
+target_link_libraries(example
+	PUBLIC
+		OpenMP::OpenMP_CXX
+	)
+```
+
+我们不关心编译标志或包含目录——这些设置和依赖项是在`OpenMP::OpenMP_CXX`中定义的(`IMPORTED`类型)。如第1章第3节中提到的，`IMPORTED`库是伪目标，它完全是我们自己项目的外部依赖项。要使用OpenMP，需要设置一些编译器标志，包括目录和链接库。所有这些都包含在`OpenMP::OpenMP_CXX`的属性上，并通过使用`target_link_libraries`命令传递给`example`。这使得在CMake中，使用库变得非常容易。我们可以使用`cmake_print_properties`命令打印接口的属性，该命令由`CMakePrintHelpers.CMake`模块提供:
+
+```cmake
+include(CMakePrintHelpers)
+cmake_print_properties(
+	TARGETS
+		OpenMP::OpenMP_CXX
+	PROPERTIES
+		INTERFACE_COMPILE_OPTIONS
+		INTERFACE_INCLUDE_DIRECTORIES
+		INTERFACE_LINK_LIBRARIES
+	)
+```
+
+所有属性都有`INTERFACE_`前缀，因为这些属性对所需目标，需要以接口形式提供，并且目标以接口的方式使用OpenMP。
+
+对于低于3.9的CMake版本:
+
+```cmake
+add_executable(example example.cpp)
+
+target_compile_options(example
+  PUBLIC
+  	${OpenMP_CXX_FLAGS}
+  )
+  
+set_target_properties(example
+  PROPERTIES
+  	LINK_FLAGS ${OpenMP_CXX_FLAGS}
+  )
+```
+
+对于低于3.5的CMake版本，我们需要为Fortran项目显式定义编译标志。
+
+在这个示例中，我们讨论了C++和Fortran。相同的参数和方法对于C项目也有效。
+
+## 检测MPI的并行环境
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-06 中找到，包含一个C++和一个C的示例。该示例在CMake 3.9版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-06 中也有一个适用于CMake 3.5的C示例。*
+
+消息传递接口(Message Passing Interface, MPI)，可以作为OpenMP(共享内存并行方式)的补充，它也是分布式系统上并行程序的实际标准。尽管，最新的MPI实现也允许共享内存并行，但高性能计算中的一种典型方法就是，在计算节点上OpenMP与MPI结合使用。MPI标准的实施包括:
+
+1. 运行时库
+2. 头文件和Fortran 90模块
+3. 编译器的包装器，用来调用编译器，使用额外的参数来构建MPI库，以处理目录和库。通常，包装器`mpic++/mpiCC/mpicxx`用于C++，`mpicc`用于C，`mpifort`用于Fortran。
+4. 启动MPI：应该启动程序，以编译代码的并行执行。它的名称依赖于实现，可以使用这几个命令启动：`mpirun`、`mpiexec`或`orterun`。
+
+本示例，将展示如何在系统上找到合适的MPI实现，从而编译一个简单的“Hello, World”MPI例程。
+
+### 准备工作
+
+示例代码(`hello-mpi.cpp`，可从[http://www.mpitutorial.com](http://www.mpitutorial.com/) 下载)将在本示例中进行编译，它将初始化MPI库，让每个进程打印其名称:
+
+```c++
+#include <iostream>
+
+#include <mpi.h>
+
+int main(int argc, char **argv)
+{
+  // Initialize the MPI environment. The two arguments to MPI Init are not
+  // currently used by MPI implementations, but are there in case future
+  // implementations might need the arguments.
+  MPI_Init(NULL, NULL);
+
+  // Get the number of processes
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  // Get the rank of the process
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+  // Get the name of the processor
+  char processor_name[MPI_MAX_PROCESSOR_NAME];
+  int name_len;
+  MPI_Get_processor_name(processor_name, &name_len);
+
+  // Print off a hello world message
+  std::cout << "Hello world from processor " << processor_name << ", rank "
+            << world_rank << " out of " << world_size << " processors" << std::endl;
+            
+  // Finalize the MPI environment. No more MPI calls can be made after this
+  MPI_Finalize();
+}
+```
+
+### 具体实施
+
+这个示例中，我们先查找MPI实现：库、头文件、编译器包装器和启动器。为此，我们将用到`FindMPI.cmake`标准CMake模块:
+
+1. 首先，定义了CMake最低版本、项目名称、支持的语言和语言标准:
+
+```cmake
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+
+project(recipe-06 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 然后，调用`find_package`来定位MPI:
+
+```cmake
+find_package(MPI REQUIRED)
+```
+
+3. 与前面的配置类似，定义了可执行文件的的名称和相关源码，并链接到目标:
+
+```cmake
+add_executable(hello-mpi hello-mpi.cpp)
+
+target_link_libraries(hello-mpi
+  PUBLIC
+ 	  MPI::MPI_CXX
+  )
+```
+
+4. 配置和构建可执行文件:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake .. # -D CMAKE_CXX_COMPILER=mpicxx C++例子中可加，加与不加对于构建结果没有影响╭(╯^╰)╮
+
+-- ...
+-- Found MPI_CXX: /usr/lib/openmpi/libmpi_cxx.so (found version "3.1")
+-- Found MPI: TRUE (found version "3.1")
+-- ...
+
+$ cmake --build .
+```
+
+5. 为了并行执行这个程序，我们使用`mpirun`启动器(本例中，启动了两个任务):
+
+```bash
+$ mpirun -np 2 ./hello-mpi
+
+Hello world from processor larry, rank 1 out of 2 processors
+Hello world from processor larry, rank 0 out of 2 processors
+
+```
+
+### 工作原理
+
+请记住，编译包装器是对MPI库编译器的封装。底层实现中，将会调用相同的编译器，并使用额外的参数(如成功构建并行程序所需的头文件包含路径和库)来扩充它。
+
+编译和链接源文件时，包装器用了哪些标志？我们可以使用`--showme`选项来查看。要找出编译器的标志，我们可以这样使用:
+
+```bash
+$ mpicxx --showme:compile
+
+-pthread
+```
+
+为了找出链接器标志，我们可以这样:
+
+```bash
+$ mpicxx --showme:link
+
+-pthread -Wl,-rpath -Wl,/usr/lib/openmpi -Wl,--enable-new-dtags -L/usr/lib/openmpi -lmpi_cxx -lmpi
+```
+
+与之前的OpenMP配置类似，我们发现到MPI的链接非常简单，这要归功于`FindMPI`模块提供的目标:
+
+正如在前面的配方中所讨论的，对于CMake版本低于3.9，需要更多的工作量:
+
+```cmake
+add_executable(hello-mpi hello-mpi.c)
+
+target_compile_options(hello-mpi
+  PUBLIC
+  	${MPI_CXX_COMPILE_FLAGS}
+  )
+  
+target_include_directories(hello-mpi
+  PUBLIC
+  	${MPI_CXX_INCLUDE_PATH}
+  )
+  
+target_link_libraries(hello-mpi
+  PUBLIC
+  	${MPI_CXX_LIBRARIES}
+  )
+```
+
+本示例中，我们讨论了C++项目。其中的参数和方法对于C或Fortran项目同样有效。
+
+## 检测Eigen库
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-07 中找到，包含一个C++的示例。该示例在CMake 3.9版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-06 中也有一个适用于CMake 3.5的C++示例。*
+
+BLAS库为矩阵和向量操作提供了标准化接口。不过，这个接口用Fortran语言书写。虽然已经展示了如何使用C++直接使用这些库，但在现代C++程序中，希望有更高级的接口。
+
+纯头文件实现的Eigen库，使用模板编程来提供接口。矩阵和向量的计算，会在编译时进行数据类型检查，以确保兼容所有维度的矩阵。密集和稀疏矩阵的运算，也可使用表达式模板高效的进行实现，如：矩阵-矩阵乘积，线性系统求解器和特征值问题。从3.3版开始，Eigen可以链接到BLAS和LAPACK库中，这可以将某些操作实现进行卸载，使库的实现更加灵活，从而获得更多的性能收益。
+
+本示例将展示如何查找Eigen库，使用OpenMP并行化，并将部分工作转移到BLAS库。
+
+本示例中会实现，矩阵-向量乘法和LU分解，可以选择卸载BLAS和LAPACK库中的一些实现。这个示例中，只考虑将在BLAS库中卸载。
+
+### 准备工作
+
+本例中，我们编译一个程序，该程序会从命令行获取的随机方阵和维向量。然后我们将用LU分解来解线性方程组**Ax=b**。以下是源代码(`linear-algebra.cpp`):
+
+```c++
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <iomanip>
+#include <iostream>
+#include <vector>
+
+#include <Eigen/Dense>
+
+int main(int argc, char **argv)
+{
+  if (argc != 2)
+  {
+    std::cout << "Usage: ./linear-algebra dim" << std::endl;
+    return EXIT_FAILURE;
+  }
+  std::chrono::time_point<std::chrono::system_clock> start, end;
+  std::chrono::duration<double> elapsed_seconds;
+  std::time_t end_time;
+  std::cout << "Number of threads used by Eigen: " << Eigen::nbThreads()
+            << std::endl;
+
+  // Allocate matrices and right-hand side vector
+  start = std::chrono::system_clock::now();
+  int dim = std::atoi(argv[1]);
+  Eigen::MatrixXd A = Eigen::MatrixXd::Random(dim, dim);
+  Eigen::VectorXd b = Eigen::VectorXd::Random(dim);
+  end = std::chrono::system_clock::now();
+
+  // Report times
+  elapsed_seconds = end - start;
+  end_time = std::chrono::system_clock::to_time_t(end);
+  std::cout << "matrices allocated and initialized "
+            << std::put_time(std::localtime(&end_time), "%a %b %d %Y
+  %r\n")
+            << "elapsed time: " << elapsed_seconds.count() << "s\n";
+
+  start = std::chrono::system_clock::now();
+  // Save matrix and RHS
+  Eigen::MatrixXd A1 = A;
+  Eigen::VectorXd b1 = b;
+  end = std::chrono::system_clock::now();
+  end_time = std::chrono::system_clock::to_time_t(end);
+  std::cout << "Scaling done, A and b saved "
+            << std::put_time(std::localtime(&end_time), "%a %b %d %Y %r\n")
+            << "elapsed time: " << elapsed_seconds.count() << "s\n";
+  start = std::chrono::system_clock::now();
+  Eigen::VectorXd x = A.lu().solve(b);
+  end = std::chrono::system_clock::now();
+
+  // Report times
+  elapsed_seconds = end - start;
+  end_time = std::chrono::system_clock::to_time_t(end);
+  double relative_error = (A * x - b).norm() / b.norm();
+  std::cout << "Linear system solver done "
+            << std::put_time(std::localtime(&end_time), "%a %b %d %Y %r\n")
+            << "elapsed time: " << elapsed_seconds.count() << "s\n";
+  std::cout << "relative error is " << relative_error << std::endl;
+  
+  return 0;
+}
+```
+
+矩阵-向量乘法和LU分解是在Eigen库中实现的，但是可以选择BLAS和LAPACK库中的实现。在这个示例中，我们只考虑BLAS库中的实现。
+
+### 具体实施
+
+这个示例中，我们将用到Eigen和BLAS库，以及OpenMP。使用OpenMP将Eigen并行化，并从BLAS库中卸载部分线性代数实现:
+
+1. 首先声明CMake最低版本、项目名称和使用C++11语言标准:
+
+```cmake
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+
+project(recipe-07 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 因为Eigen可以使用共享内存的方式，所以可以使用OpenMP并行处理计算密集型操作:
+
+```cmake
+find_package(OpenMP REQUIRED)
+```
+
+3. 调用`find_package`来搜索Eigen(将在下一小节中讨论):
+
+```cmake
+find_package(Eigen3 3.3 REQUIRED CONFIG)
+```
+
+4. 如果找到Eigen，我们将打印状态信息。注意，使用的是`Eigen3::Eigen`，这是一个`IMPORT`目标，可通过提供的CMake脚本找到这个目标:
+
+```cmake
+if(TARGET Eigen3::Eigen)
+  message(STATUS "Eigen3 v${EIGEN3_VERSION_STRING} found in ${EIGEN3_INCLUDE_DIR}")
+endif()
+```
+
+5. 接下来，将源文件声明为可执行目标:
+
+```cmake
+add_executable(linear-algebra linear-algebra.cpp)
+```
+
+6. 然后，找到BLAS。注意，现在不需要依赖项:
+
+```cmake
+find_package(BLAS)
+```
+
+7. 如果找到BLAS，我们可为可执行目标，设置相应的宏定义和链接库:
+
+```cmake
+if(BLAS_FOUND)
+  message(STATUS "Eigen will use some subroutines from BLAS.")
+  message(STATUS "See: http://eigen.tuxfamily.org/dox-devel/TopicUsingBlasLapack.html")
+  target_compile_definitions(linear-algebra
+    PRIVATE
+    	EIGEN_USE_BLAS
+    )
+  target_link_libraries(linear-algebra
+    PUBLIC
+    	${BLAS_LIBRARIES}
+    )
+else()
+	message(STATUS "BLAS not found. Using Eigen own functions")
+endif()
+```
+
+8. 最后，我们链接到`Eigen3::Eigen`和`OpenMP::OpenMP_CXX`目标。这就可以设置所有必要的编译标示和链接标志:
+
+```cmake
+target_link_libraries(linear-algebra
+  PUBLIC
+    Eigen3::Eigen
+    OpenMP::OpenMP_CXX
+  )
+```
+
+9. 开始配置:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+-- ...
+-- Found OpenMP_CXX: -fopenmp (found version "4.5")
+-- Found OpenMP: TRUE (found version "4.5")
+-- Eigen3 v3.3.4 found in /usr/include/eigen3
+-- ...
+-- Found BLAS: /usr/lib/libblas.so
+-- Eigen will use some subroutines from BLAS.
+-- See: http://eigen.tuxfamily.org/dox-devel/TopicUsingBlasLapack.html
+
+```
+
+10. 最后，编译并测试代码。注意，可执行文件使用四个线程运行:
+
+```bash
+$ cmake --build .
+$ ./linear-algebra 1000
+
+Number of threads used by Eigen: 4
+matrices allocated and initialized Sun Jun 17 2018 11:04:20 AM
+elapsed time: 0.0492328s
+Scaling done, A and b saved Sun Jun 17 2018 11:04:20 AM
+elapsed time: 0.0492328s
+Linear system solver done Sun Jun 17 2018 11:04:20 AM
+elapsed time: 0.483142s
+relative error is 4.21946e-13
+```
+
+### 工作原理
+
+Eigen支持CMake查找，这样配置项目就会变得很容易。从3.3版开始，Eigen提供了CMake模块，这些模块将导出相应的目标`Eigen3::Eigen`。
+
+`find_package`可以通过选项传递，届时CMake将不会使用`FindEigen3.cmake`模块，而是通过特定的`Eigen3Config.cmake`，`Eigen3ConfigVersion.cmake`和`Eigen3Targets.cmake`提供Eigen3安装的标准位置(`<installation-prefix>/share/eigen3/cmake`)。这种包定位模式称为“Config”模式，比`Find<package>.cmake`方式更加通用。有关“模块”模式和“配置”模式的更多信息，可参考官方文档 https://cmake.org/cmake/help/v3.5/command/find_package.html 。
+
+虽然Eigen3、BLAS和OpenMP声明为`PUBLIC`依赖项，但`EIGEN_USE_BLAS`编译定义声明为`PRIVATE`。可以在单独的库目标中汇集库依赖项，而不是直接链接可执行文件。使用`PUBLIC/PRIVATE`关键字，可以根据库目标的依赖关系调整相应标志和定义。
+
+### 更多信息
+
+CMake将在预定义的位置层次结构中查找配置模块。首先是`CMAKE_PREFIX_PATH`，`<package>_DIR`是接下来的搜索路径。因此，如果Eigen3安装在非标准位置，可以使用这两个选项来告诉CMake在哪里查找它:
+
+1. 通过将Eigen3的安装前缀传递给`CMAKE_PREFIX_PATH`:
+
+```bash
+$ cmake -D CMAKE_PREFIX_PATH=<installation-prefix> ..
+```
+
+2. 通过传递配置文件的位置作为`Eigen3_DIR`:
+
+```bash
+$ cmake -D Eigen3_DIR=<installation-prefix>/share/eigen3/cmake ..
+```
+
+## 检测Boost库
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-08 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+Boost是一组C++通用库。这些库提供了许多功能，这些功能在现代C++项目中不可或缺，但是还不能通过C++标准使用这些功能。例如，Boost为元编程、处理可选参数和文件系统操作等提供了相应的组件。这些库中有许多特性后来被C++11、C++14和C++17标准所采用，但是对于保持与旧编译器兼容性的代码库来说，许多Boost组件仍然是首选。
+
+本示例将向您展示如何检测和链接Boost库的一些组件。
+
+### 准备工作
+
+我们将编译的源码是Boost提供的文件系统库与文件系统交互的示例。这个库可以跨平台使用，并将操作系统和文件系统之间的差异抽象为一致的API。下面的代码(`path-info.cpp`)将接受一个路径作为参数，并将其组件的报告打印到屏幕上:
+
+```c++
+#include <iostream>
+
+#include <boost/filesystem.hpp>
+
+using namespace std;
+using namespace boost::filesystem;
+const char *say_what(bool b) { return b ? "true" : "false"; }
+int main(int argc, char *argv[])
+{
+  if (argc < 2)
+  {
+    cout
+        << "Usage: path_info path-element [path-element...]\n"
+           "Composes a path via operator/= from one or more path-element arguments\n"
+           "Example: path_info foo/bar baz\n"
+#ifdef BOOST_POSIX_API
+           " would report info about the composed path foo/bar/baz\n";
+#else // BOOST_WINDOWS_API
+           " would report info about the composed path foo/bar\\baz\n";
+#endif
+    return 1;
+  }
+  path p;
+  for (; argc > 1; --argc, ++argv)
+    p /= argv[1]; // compose path p from the command line arguments
+  cout << "\ncomposed path:\n";
+  cout << " operator<<()---------: " << p << "\n";
+  cout << " make_preferred()-----: " << p.make_preferred() << "\n";
+  cout << "\nelements:\n";
+  for (auto element : p)
+    cout << " " << element << '\n';
+  cout << "\nobservers, native format:" << endl;
+#ifdef BOOST_POSIX_API
+  cout << " native()-------------: " << p.native() << endl;
+  cout << " c_str()--------------: " << p.c_str() << endl;
+#else // BOOST_WINDOWS_API
+  wcout << L" native()-------------: " << p.native() << endl;
+  wcout << L" c_str()--------------: " << p.c_str() << endl;
+#endif
+  cout << " string()-------------: " << p.string() << endl;
+  wcout << L" wstring()------------: " << p.wstring() << endl;
+  cout << "\nobservers, generic format:\n";
+  cout << " generic_string()-----: " << p.generic_string() << endl;
+  wcout << L" generic_wstring()----: " << p.generic_wstring() << endl;
+  cout << "\ndecomposition:\n";
+  cout << " root_name()----------: " << p.root_name() << '\n';
+  cout << " root_directory()-----: " << p.root_directory() << '\n';
+  cout << " root_path()----------: " << p.root_path() << '\n';
+  cout << " relative_path()------: " << p.relative_path() << '\n';
+  cout << " parent_path()--------: " << p.parent_path() << '\n';
+  cout << " filename()-----------: " << p.filename() << '\n';
+  cout << " stem()---------------: " << p.stem() << '\n';
+  cout << " extension()----------: " << p.extension() << '\n';
+  cout << "\nquery:\n";
+  cout << " empty()--------------: " << say_what(p.empty()) << '\n';
+  cout << " is_absolute()--------: " << say_what(p.is_absolute()) << '\n';
+  cout << " has_root_name()------: " << say_what(p.has_root_name()) << '\n';
+  cout << " has_root_directory()-: " << say_what(p.has_root_directory()) << '\n';
+  cout << " has_root_path()------: " << say_what(p.has_root_path()) << '\n';
+  cout << " has_relative_path()--: " << say_what(p.has_relative_path()) << '\n';
+  cout << " has_parent_path()----: " << say_what(p.has_parent_path()) << '\n';
+  cout << " has_filename()-------: " << say_what(p.has_filename()) << '\n';
+  cout << " has_stem()-----------: " << say_what(p.has_stem()) << '\n';
+  cout << " has_extension()------: " << say_what(p.has_extension()) << '\n';
+  return 0;
+}
+```
+
+### 具体实施
+
+Boost由许多不同的库组成，这些库可以独立使用。CMake可将这个库集合，表示为组件的集合。`FindBoost.cmake`模块不仅可以搜索库集合的完整安装，还可以搜索集合中的特定组件及其依赖项(如果有的话)。我们将逐步建立相应的`CMakeLists.txt`:
+
+1. 首先，声明CMake最低版本、项目名称、语言，并使用C++11标准:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+project(recipe-08 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 然后，使用`find_package`搜索Boost。若需要对Boost强制性依赖，需要一个参数。这个例子中，只需要文件系统组件，所以将它作为参数传递给`find_package`:
+
+```cmake
+find_package(Boost 1.54 REQUIRED COMPONENTS filesystem)
+```
+
+3. 添加可执行目标，编译源文件:
+
+```cmake
+add_executable(path-info path-info.cpp)
+```
+
+4. 最后，将目标链接到Boost库组件。由于依赖项声明为`PUBLIC`，依赖于Boost的目标将自动获取依赖项:
+
+```cmake
+target_link_libraries(path-info
+  PUBLIC
+  	Boost::filesystem
+	)
+```
+
+### 工作原理
+
+`FindBoost.cmake`是本示例中所使用的CMake模块，其会在标准系统安装目录中找到Boost库。由于我们链接的是`Boost::filesystem`，CMake将自动设置包含目录并调整编译和链接标志。如果Boost库安装在非标准位置，可以在配置时使用`BOOST_ROOT`变量传递Boost安装的根目录，以便让CMake搜索非标准路径:
+
+```bash
+$ cmake -D BOOST_ROOT=/custom/boost
+```
+
+或者，可以同时传递包含头文件的`BOOST_INCLUDEDIR`变量和库目录的`BOOST_LIBRARYDIR`变量:
+
+```bash
+$ cmake -D BOOST_INCLUDEDIR=/custom/boost/include -DBOOST_LIBRARYDIR=/custom/boost/lib
+```
+
+## 检测外部库:Ⅰ. 使用pkg-config
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-09 中找到，包含一个C的示例。该示例在CMake 3.6版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-09 中也有一个适用于CMake 3.5的示例。*
+
+目前为止，我们已经讨论了两种检测外部依赖关系的方法:
+
+- 使用CMake自带的`find-module`，但并不是所有的包在CMake的`find`模块都找得到。
+- 使用`<package>Config.cmake`, `<package>ConfigVersion.cmake`和`<package>Targets.cmake`，这些文件由软件包供应商提供，并与软件包一起安装在标准位置的cmake文件夹下。
+
+如果某个依赖项既不提供查找模块，也不提供供应商打包的CMake文件，该怎么办?在这种情况下，我们只有两个选择:
+
+- 依赖`pkg-config`程序，来找到系统上的包。这依赖于包供应商在`.pc`配置文件中，其中有关于发行包的元数据。
+- 为依赖项编写自己的`find-package`模块。
+
+本示例中，将展示如何利用CMake中的`pkg-config`来定位ZeroMQ消息库。下一个示例中，将编写一个find模块，展示如何为ZeroMQ编写属于自己`find`模块。
+
+### 准备工作
+
+我们构建的代码来自ZeroMQ手册 http://zguide.zeromq.org/page:all 的示例。由两个源文件`hwserver.c`和`hwclient.c`组成，这两个源文件将构建为两个独立的可执行文件。执行时，它们将打印“Hello, World”。
+
+### 具体实施
+
+这是一个C项目，我们将使用C99标准，逐步构建`CMakeLists.txt`文件:
+
+1. 声明一个C项目，并要求符合C99标准:
+
+```cmake
+cmake_minimum_required(VERSION 3.6 FATAL_ERROR)
+
+project(recipe-09 LANGUAGES C)
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+```
+
+2. 使用CMake附带的find-module，查找`pkg-config`。这里在`find_package`中传递了`QUIET`参数。只有在没有找到`pkg-config`时，CMake才会报错:
+
+```cmake
+find_package(PkgConfig REQUIRED QUIET)
+```
+
+3. 找到`pkg-config`时，我们将使用`pkg_search_module`函数，以搜索任何附带包配置`.pc`文件的库或程序。该示例中，我们查找ZeroMQ库:
+
+```cmake
+pkg_search_module(
+  ZeroMQ
+  REQUIRED
+  	libzeromq libzmq lib0mq
+  IMPORTED_TARGET
+  )
+```
+
+4. 如果找到ZeroMQ库，则打印状态消息:
+
+```cmake
+if(TARGET PkgConfig::ZeroMQ)
+	message(STATUS "Found ZeroMQ")
+endif()
+```
+
+5. 然后，添加两个可执行目标，并链接到ZeroMQ。这将自动设置包括目录和链接库:
+
+```cmake
+add_executable(hwserver hwserver.c)
+target_link_libraries(hwserver PkgConfig::ZeroMQ)
+add_executable(hwclient hwclient.c)
+target_link_libraries(hwclient PkgConfig::ZeroMQ)
+```
+
+6. 现在，我们可以配置和构建示例:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+```
+
+7. 在终端中，启动服务器，启动时会输出类似于本例的消息:
+
+```bash
+Current 0MQ version is 4.2.2
+```
+
+8. 然后，在另一个终端启动客户端，它将打印如下内容:
+
+```bash
+Connecting to hello world server…
+Sending Hello 0…
+Received World 0
+Sending Hello 1…
+Received World 1
+Sending Hello 2…
+...
+```
+
+### 工作原理
+
+当找到`pkg-config`时, CMake需要提供两个函数，来封装这个程序提供的功能:
+
+- `pkg_check_modules`，查找传递列表中的所有模块(库和/或程序)
+- `pkg_search_module`，要在传递的列表中找到第一个工作模块
+
+与`find_package`一样，这些函数接受`REQUIRED`和`QUIET`参数。更详细地说，我们对`pkg_search_module`的调用如下:
+
+```cmake
+pkg_search_module(
+  ZeroMQ
+  REQUIRED
+  	libzeromq libzmq lib0mq
+  IMPORTED_TARGET
+  )
+```
+
+这里，第一个参数是前缀，它将用于命名存储搜索ZeroMQ库结果的目标：`PkgConfig::ZeroMQ`。注意，我们需要为系统上的库名传递不同的选项：`libzeromq`、`libzmq`和`lib0mq`。这是因为不同的操作系统和包管理器，可为同一个包选择不同的名称。
+
+**NOTE**:*`pkg_check_modules`和`pkg_search_module`函数添加了`IMPORTED_TARGET`选项，并在CMake 3.6中定义导入目标的功能。3.6之前的版本，只定义了变量`ZeroMQ_INCLUDE_DIRS`(用于include目录)和`ZeroMQ_LIBRARIES`(用于链接库)，供后续使用。*
+
+## 检测外部库:Ⅱ. 自定义find模块
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-10 中找到，包含一个C的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+此示例补充了上一节的示例，我们将展示如何编写一个`find`模块来定位系统上的ZeroMQ消息库，以便能够在非Unix操作系统上检测该库。我们重用服务器-客户端示例代码。
+
+### 如何实施
+
+这是一个C项目，使用C99标准，并逐步构建CMakeLists.txt文件:
+
+1. 声明一个C项目，并要求符合C99标准:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+project(recipe-10 LANGUAGES C)
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+```
+
+2. 将当前源目录`CMAKE_CURRENT_SOURCE_DIR`，添加到CMake将查找模块的路径列表`CMAKE_MODULE_PATH`中。这样CMake就可以找到，我们自定义的`FindZeroMQ.cmake`模块:
+
+```cmake
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR})
+```
+
+3. 现在`FindZeroMQ.cmake`模块是可用的，可以通过这个模块来搜索项目所需的依赖项。由于我们没有使用`QUIET`选项来查找`find_package`，所以当找到库时，状态消息将自动打印:
+
+```cmake
+find_package(ZeroMQ REQUIRED)
+```
+
+4. 我们继续添加`hwserver`可执行目标。头文件包含目录和链接库是使用`find_package`命令成功后，使用`ZeroMQ_INCLUDE_DIRS`和`ZeroMQ_LIBRARIES`变量进行指定的:
+
+```cmake
+add_executable(hwserver hwserver.c)
+target_include_directories(hwserver
+  PRIVATE
+  	${ZeroMQ_INCLUDE_DIRS}
+  )
+target_link_libraries(hwserver
+  PRIVATE
+  	${ZeroMQ_LIBRARIES}
+  )
+```
+
+5. 最后，我们对`hwclient`可执行目标执行相同的操作:
+
+```cmake
+add_executable(hwclient hwclient.c)
+target_include_directories(hwclient
+  PRIVATE
+  	${ZeroMQ_INCLUDE_DIRS}
+  )
+target_link_libraries(hwclient
+  PRIVATE
+  	${ZeroMQ_LIBRARIES}
+  )
+```
+
+此示例的主`CMakeLists.txt`在使用`FindZeroMQ.cmake`时，与前一个示例中使用的`CMakeLists.txt`不同。这个模块使用`find_path`和`find_library` CMake内置命令，搜索ZeroMQ头文件和库，并使用`find_package_handle_standard_args`设置相关变量，就像我们在第3节中做的那样。
+
+1. `FindZeroMQ.cmake`中，检查了`ZeroMQ_ROOT`变量是否设置。此变量可用于ZeroMQ库的检测，并引导到自定义安装目录。用户可能设置了`ZeroMQ_ROOT`作为环境变量，我们也会进行检查了:
+
+```cmake
+if(NOT ZeroMQ_ROOT)
+	set(ZeroMQ_ROOT "$ENV{ZeroMQ_ROOT}")
+endif()
+```
+
+2. 然后，搜索系统上`zmq.h`头文件的位置。这是基于`_ZeroMQ_ROOT`变量和`find_path`命令进行的:
+
+```cmake
+if(NOT ZeroMQ_ROOT)
+	find_path(_ZeroMQ_ROOT NAMES include/zmq.h)
+else()
+	set(_ZeroMQ_ROOT "${ZeroMQ_ROOT}")
+endif()
+
+find_path(ZeroMQ_INCLUDE_DIRS NAMES zmq.h HINTS ${_ZeroMQ_ROOT}/include)
+```
+
+3. 如果成功找到头文件，则将`ZeroMQ_INCLUDE_DIRS`设置为其位置。我们继续通过使用字符串操作和正则表达式，寻找相应版本的ZeroMQ库:
+
+```cmake
+set(_ZeroMQ_H ${ZeroMQ_INCLUDE_DIRS}/zmq.h)
+
+function(_zmqver_EXTRACT _ZeroMQ_VER_COMPONENT _ZeroMQ_VER_OUTPUT)
+set(CMAKE_MATCH_1 "0")
+set(_ZeroMQ_expr "^[ \\t]*#define[ \\t]+${_ZeroMQ_VER_COMPONENT}[ \\t]+([0-9]+)$")
+file(STRINGS "${_ZeroMQ_H}" _ZeroMQ_ver REGEX "${_ZeroMQ_expr}")
+string(REGEX MATCH "${_ZeroMQ_expr}" ZeroMQ_ver "${_ZeroMQ_ver}")
+set(${_ZeroMQ_VER_OUTPUT} "${CMAKE_MATCH_1}" PARENT_SCOPE)
+endfunction()
+
+_zmqver_EXTRACT("ZMQ_VERSION_MAJOR" ZeroMQ_VERSION_MAJOR)
+_zmqver_EXTRACT("ZMQ_VERSION_MINOR" ZeroMQ_VERSION_MINOR)
+_zmqver_EXTRACT("ZMQ_VERSION_PATCH" ZeroMQ_VERSION_PATCH)
+```
+
+4. 然后，为`find_package_handle_standard_args`准备`ZeroMQ_VERSION`变量:
+
+```cmake
+if(ZeroMQ_FIND_VERSION_COUNT GREATER 2)
+	set(ZeroMQ_VERSION "${ZeroMQ_VERSION_MAJOR}.${ZeroMQ_VERSION_MINOR}.${ZeroMQ_VERSION_PATCH}")
+else()
+	set(ZeroMQ_VERSION "${ZeroMQ_VERSION_MAJOR}.${ZeroMQ_VERSION_MINOR}")
+endif()
+```
+
+5. 使用`find_library`命令搜索ZeroMQ库。因为库的命名有所不同，这里我们需要区分Unix的平台和Windows平台:
+
+```cmake
+if(NOT ${CMAKE_C_PLATFORM_ID} STREQUAL "Windows")
+  find_library(ZeroMQ_LIBRARIES
+    NAMES
+    	zmq
+    HINTS
+      ${_ZeroMQ_ROOT}/lib
+      ${_ZeroMQ_ROOT}/lib/x86_64-linux-gnu
+    )
+else()
+  find_library(ZeroMQ_LIBRARIES
+    NAMES
+    	libzmq
+      "libzmq-mt-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+      "libzmq-${CMAKE_VS_PLATFORM_TOOLSET}-mt-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+      libzmq_d
+      "libzmq-mt-gd-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+      "libzmq-${CMAKE_VS_PLATFORM_TOOLSET}-mt-gd-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+    HINTS
+    	${_ZeroMQ_ROOT}/lib
+    )
+endif()
+```
+
+6. 最后，包含了标准`FindPackageHandleStandardArgs.cmake`，并调用相应的CMake命令。如果找到所有需要的变量，并且版本匹配，则将`ZeroMQ_FOUND`变量设置为`TRUE`:
+
+```cmake
+include(FindPackageHandleStandardArgs)
+
+find_package_handle_standard_args(ZeroMQ
+  FOUND_VAR
+  	ZeroMQ_FOUND
+  REQUIRED_VARS
+  ZeroMQ_INCLUDE_DIRS
+  ZeroMQ_LIBRARIES
+  VERSION_VAR
+  ZeroMQ_VERSION
+  )
+```
+
+**NOTE**:*刚才描述的`FindZeroMQ.cmake`模块已经在 https://github.com/zeromq/azmq/blob/master/config/FindZeroMQ.cmake 上进行了修改。*
+
+### 工作原理
+
+`find-module`通常遵循特定的模式:
+
+1. 检查用户是否为所需的包提供了自定义位置。
+2. 使用`find_`家族中的命令搜索所需包的必需组件，即头文件、库、可执行程序等等。我们使用`find_path`查找头文件的完整路径，并使用`find_library`查找库。CMake还提供`find_file`、`find_program`和`find_package`。这些命令的签名如下:
+
+```cmake
+find_path(<VAR> NAMES name PATHS paths)
+```
+
+1. 如果搜索成功，`<VAR>`将保存搜索结果；如果搜索失败，则会设置为`<VAR>-NOTFOUND`。`NAMES`和`PATHS`分别是CMake应该查找的文件的名称和搜索应该指向的路径。
+2. 初步搜索的结果中，可以提取版本号。示例中，ZeroMQ头文件包含库版本，可以使用字符串操作和正则表达式提取库版本信息。
+3. 最后，调用`find_package_handle_standard_args`命令。处理`find_package`命令的`REQUIRED`、`QUIET`和版本参数，并设置`ZeroMQ_FOUND`变量。
+
+**NOTE**:*任何CMake命令的完整文档都可以从命令行获得。例如，`cmake --help-command find_file`将输出`find_file`命令的手册页。对于CMake标准模块的手册，可以在CLI使用`--help-module`看到。例如，`cmake --help-module FindPackageHandleStandardArgs`将输出`FindPackageHandleStandardArgs.cmake`的手册页面。*
+
+### 更多信息
+
+总而言之，有四种方式可用于找到依赖包:
+
+1. 使用由包供应商提供CMake文件`<package>Config.cmake` ，`<package>ConfigVersion.cmake`和`<package>Targets.cmake`，通常会在包的标准安装位置查找。
+2. 无论是由CMake还是第三方提供的模块，为所需包使用`find-module`。
+3. 使用`pkg-config`，如本节的示例所示。
+4. 如果这些都不可行，那么编写自己的`find`模块。
+
+这四种可选方案按相关性进行了排序，每种方法也都有其挑战。
+
+目前，并不是所有的包供应商都提供CMake的Find文件，不过正变得越来越普遍。因为导出CMake目标，使得第三方代码很容易使用它所依赖的库和/或程序附加的依赖。
+
+从一开始，`Find-module`就一直是CMake中定位依赖的主流手段。但是，它们中的大多数仍然依赖于设置依赖项使用的变量，比如`Boost_INCLUDE_DIRS`、`PYTHON_INTERPRETER`等等。这种方式很难在第三方发布自己的包时，确保依赖关系被满足。
+
+使用`pkg-config`的方法可以很好地进行适配，因为它已经成为Unix系统的标准。然而，也由于这个原因，它不是一个完全跨平台的方法。此外，如CMake文档所述，在某些情况下，用户可能会意外地覆盖检测包，并导致`pkg-config`提供不正确的信息。
+
+最后的方法是编写自己的查找模块脚本，就像本示例中那样。这是可行的，并且依赖于`FindPackageHandleStandardArgs.cmake`。然而，编写一个全面的查找模块脚本绝非易事；有需要考虑很多可能性，我们在Unix和Windows平台上，为查找ZeroMQ库文件演示了一个例子。
+
+所有软件开发人员都非常清楚这些问题和困难，正如CMake邮件列表上讨论所示: https://cmake.org/pipermail/cmake/2018-May/067556.html 。`pkg-config`在Unix包开发人员中是可以接受的，但是它不能很容易地移植到非Unix平台。CMake配置文件功能强大，但并非所有软件开发人员都熟悉CMake语法。公共包规范项目是统一用于包查找的`pkg-config`和CMake配置文件方法的最新尝试。您可以在项目的网站上找到更多信息: https://mwoehlke.github.io/cps/
+
+在第10章中将讨论，如何使用前面讨论中概述的第一种方法，使第三方应用程序，找到自己的包：为项目提供自己的CMake查找文件。
+
+
+
+# CMake 完整使用教程 之五 创建和运行测试
+
+
+
+本章的主要内容有：
+
+- 创建一个简单的单元测试
+- 使用Catch2库进行单元测试
+- 使用Google Test库进行单元测试
+- 使用Boost Test进行单元测试
+- 使用动态分析来检测内存缺陷
+- 预期测试失败
+- 使用超时测试运行时间过长的测试
+- 并行测试
+- 运行测试子集
+- 使用测试固件
+
+测试代码是开发工具的核心组件。通过单元测试和集成测试自动化测试，不仅可以帮助开发人员尽早回归功能检测，还可以帮助开发人员参与，并了解项目。它可以帮助新开发人员向项目代码提交修改，并确保预期的功能性。对于验证安装是否保留了代码的功能时，自动化测试必不可少。从一开始对单元、模块或库进行测试，可以使用一种纯函数式的风格，将全局变量和全局状态最小化，可让开发者的具有更模块化、更简单的编程风格。
+
+本章中，我们将演示如何使用流行的测试库和框架，将测试集成到CMake构建结构中，并谨记以下目标：
+
+- 让用户、开发人员和持续集成服务很容易地运行测试集。应该像使用`Unix Makefile`时，键入`make test`一样简单。
+- 通过最小化测试时间，高效地运行测试，最大限度地提高运行测试的概率——理想情况下，每次代码修改都该如此。
+
+## 创建一个简单的单元测试
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-01 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+CTest是CMake的测试工具，本示例中，我们将使用CTest进行单元测试。为了保持对CMake/CTest的关注，我们的测试代码会尽可能的简单。计划是编写和测试能够对整数求和的代码，示例代码只会对整数进行累加，不处理浮点数。就像年轻的卡尔•弗里德里希•高斯(Carl Friedrich Gauss)，被他的老师测试从1到100求和所有自然数一样，我们将要求代码做同样的事情。为了说明CMake没有对实际测试的语言进行任何限制，我们不仅使用C++可执行文件测试代码，还使用Python脚本和shell脚本作为测试代码。为了简单起见，我们将不使用任何测试库来实现，但是我们将在 后面的示例中介绍C++测试框架。
+
+### 准备工作
+
+代码示例由三个文件组成。实现源文件`sum_integs.cpp`对整数向量进行求和，并返回累加结果：
+
+```c++
+#include "sum_integers.hpp"
+
+#include <vector>
+
+int sum_integers(const std::vector<int> integers) {
+	auto sum = 0;
+	for (auto i : integers) {
+		sum += i;
+	}
+	return sum;
+}
+```
+
+这个示例是否是优雅的实现并不重要，接口以`sum_integers`的形式导出。接口在`sum_integers.hpp`文件中声明，详情如下:
+
+```c++
+#pragma once
+
+#include <vector>
+
+int sum_integers(const std::vector<int> integers);
+```
+
+最后，main函数在`main.cpp`中定义，从`argv[]`中收集命令行参数，将它们转换成整数向量，调用`sum_integers`函数，并将结果打印到输出中:
+
+```c++
+#include "sum_integers.hpp"
+
+#include <iostream>
+#include <string>
+#include <vector>
+
+// we assume all arguments are integers and we sum them up
+// for simplicity we do not verify the type of arguments
+int main(int argc, char *argv[]) {
+	std::vector<int> integers;
+	for (auto i = 1; i < argc; i++) {
+		integers.push_back(std::stoi(argv[i]));
+	}
+	auto sum = sum_integers(integers);
+  
+	std::cout << sum << std::endl;
+}
+```
+
+测试这段代码使用C++实现(`test.cpp`)，Bash shell脚本实现(`test.sh`)和Python脚本实现(`test.py`)，只要实现可以返回一个零或非零值，从而CMake可以解释为成功或失败。
+
+C++例子(`test.cpp`)中，我们通过调用`sum_integers`来验证1 + 2 + 3 + 4 + 5 = 15：
+
+```c++
+#include "sum_integers.hpp"
+
+#include <vector>
+
+int main() {
+	auto integers = {1, 2, 3, 4, 5};
+	
+  if (sum_integers(integers) == 15) {
+		return 0;
+	} else {
+		return 1;
+	}
+}
+```
+
+Bash shell脚本调用可执行文件：
+
+```bash
+#!/usr/bin/env bash
+
+EXECUTABLE=$1
+
+OUTPUT=$($EXECUTABLE 1 2 3 4)
+
+if [ "$OUTPUT" = "10" ]
+then
+	exit 0
+else
+	exit 1
+fi
+```
+
+此外，Python脚本调用可执行文件(使用`--executable`命令行参数传递)，并使用`--short`命令行参数执行：
+
+```python
+import subprocess
+import argparse
+
+# test script expects the executable as argument
+parser = argparse.ArgumentParser()
+parser.add_argument('--executable',
+										 help='full path to executable')
+parser.add_argument('--short',
+										 default=False,
+                    action='store_true',
+                    help='run a shorter test')
+args = parser.parse_args()
+
+def execute_cpp_code(integers):
+	result = subprocess.check_output([args.executable] + integers)
+	return int(result)
+
+if args.short:
+	# we collect [1, 2, ..., 100] as a list of strings
+	result = execute_cpp_code([str(i) for i in range(1, 101)])
+	assert result == 5050, 'summing up to 100 failed'
+else:
+	# we collect [1, 2, ..., 1000] as a list of strings
+	result = execute_cpp_code([str(i) for i in range(1, 1001)])
+	assert result == 500500, 'summing up to 1000 failed'
+```
+
+### 具体实施
+
+现在，我们将逐步描述如何为项目设置测试：
+
+1. 对于这个例子，我们需要C++11支持，可用的Python解释器，以及Bash shell:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+project(recipe-01 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(PythonInterp REQUIRED)
+find_program(BASH_EXECUTABLE NAMES bash REQUIRED)
+```
+
+2. 然后，定义库及主要可执行文件的依赖关系，以及测试可执行文件：
+
+```cmake
+# example library
+add_library(sum_integers sum_integers.cpp)
+
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+
+# testing binary
+add_executable(cpp_test test.cpp)
+target_link_libraries(cpp_test sum_integers)
+```
+
+3. 最后，打开测试功能并定义四个测试。最后两个测试， 调用相同的Python脚本，先没有任何命令行参数，再使用`--short`：
+
+```cmake
+enable_testing()
+
+add_test(
+  NAME bash_test
+  COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.sh $<TARGET_FILE:sum_up>
+  )
+  
+add_test(
+  NAME cpp_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+  
+add_test(
+  NAME python_test_long
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --executable $<TARGET_FILE:sum_up>
+  )
+  
+add_test(
+  NAME python_test_short
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --short --executable $<TARGET_FILE:sum_up>
+  )
+```
+
+4. 现在，我们已经准备好配置和构建代码。先手动进行测试：
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./sum_up 1 2 3 4 5
+
+15
+```
+
+5. 然后，我们可以用`ctest`运行测试集：
+
+```bash
+$ ctest
+
+Test project /home/user/cmake-recipes/chapter-04/recipe-01/cxx-example/build
+Start 1: bash_test
+1/4 Test #1: bash_test ........................ Passed 0.01 sec
+Start 2: cpp_test
+2/4 Test #2: cpp_test ......................... Passed 0.00 sec
+Start 3: python_test_long
+3/4 Test #3: python_test_long ................. Passed 0.06 sec
+Start 4: python_test_short
+4/4 Test #4: python_test_short ................ Passed 0.05 sec
+100% tests passed, 0 tests failed out of 4
+Total Test time (real) = 0.12 sec
+```
+
+6. 还应该尝试中断实现，以验证测试集是否能捕捉到更改。
+
+### 工作原理
+
+这里的两个关键命令：
+
+- `enable_testing()`，测试这个目录和所有子文件夹(因为我们把它放在主`CMakeLists.txt`)。
+- `add_test()`，定义了一个新的测试，并设置测试名称和运行命令。
+
+```cmake
+add_test(
+  NAME cpp_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+```
+
+上面的例子中，使用了生成器表达式:`$<TARGET_FILE:cpp_test>`。生成器表达式，是在生成**构建系统生成时**的表达式。我们将在第5章第9节中详细地描述生成器表达式。此时，我们可以声明`$<TARGET_FILE:cpp_test>`变量，将使用`cpp_test`可执行目标的完整路径进行替换。
+
+生成器表达式在测试时非常方便，因为不必显式地将可执行程序的位置和名称，可以硬编码到测试中。以一种可移植的方式实现这一点非常麻烦，因为可执行文件和可执行后缀(例如，Windows上是`.exe`后缀)的位置在不同的操作系统、构建类型和生成器之间可能有所不同。使用生成器表达式，我们不必显式地了解位置和名称。
+
+也可以将参数传递给要运行的`test`命令，例如：
+
+```cmake
+add_test(
+  NAME python_test_short
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --short --executable $<TARGET_FILE:sum_up>
+  )
+```
+
+这个例子中，我们按顺序运行测试，并展示如何缩短总测试时间并行执行测试(第8节)，执行测试用例的子集(第9节)。这里，可以自定义测试命令，可以以任何编程语言运行测试集。CTest关心的是，通过命令的返回码测试用例是否通过。CTest遵循的标准约定是，返回零意味着成功，非零返回意味着失败。可以返回零或非零的脚本，都可以做测试用例。
+
+既然知道了如何定义和执行测试，那么了解如何诊断测试失败也很重要。为此，我们可以在代码中引入一个bug，让所有测试都失败:
+
+```bash
+Start 1: bash_test
+1/4 Test #1: bash_test ........................***Failed 0.01 sec
+	Start 2: cpp_test
+2/4 Test #2: cpp_test .........................***Failed 0.00 sec
+	Start 3: python_test_long
+3/4 Test #3: python_test_long .................***Failed 0.06 sec
+	Start 4: python_test_short
+4/4 Test #4: python_test_short ................***Failed 0.06 sec
+
+0% tests passed, 4 tests failed out of 4
+
+Total Test time (real) = 0.13 sec
+
+The following tests FAILED:
+1 - bash_test (Failed)
+2 - cpp_test (Failed)
+3 - python_test_long (Failed)
+4 - python_test_short (Failed)
+Errors while running CTest
+```
+
+如果我们想了解更多，可以查看文件`test/Temporary/lasttestsfailure.log`。这个文件包含测试命令的完整输出，并且在分析阶段，要查看的第一个地方。使用以下CLI开关，可以从CTest获得更详细的测试输出：
+
+- `--output-on-failure`:将测试程序生成的任何内容打印到屏幕上，以免测试失败。
+- `-v`:将启用测试的详细输出。
+- `-vv`:启用更详细的输出。
+
+CTest提供了一个非常方快捷的方式，可以重新运行以前失败的测试；要使用的CLI开关是`--rerun-failed`，在调试期间非常有用。
+
+### 更多信息
+
+考虑以下定义:
+
+```cmake
+add_test(
+  NAME python_test_long
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --executable $<TARGET_FILE:sum_up>
+  )
+```
+
+前面的定义可以通过显式指定脚本运行的`WORKING_DIRECTORY`重新表达，如下:
+
+```cmake
+add_test(
+  NAME python_test_long
+  COMMAND ${PYTHON_EXECUTABLE} test.py --executable $<TARGET_FILE:sum_up>
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+```
+
+测试名称可以包含`/`字符，按名称组织相关测试也很有用，例如：
+
+```cmake
+add_test(
+  NAME python/long
+  COMMAND ${PYTHON_EXECUTABLE} test.py --executable $<TARGET_FILE:sum_up>
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+```
+
+有时候，我们需要为测试脚本设置环境变量。这可以通过`set_tests_properties`实现:
+
+```cmake
+set_tests_properties(python_test
+  PROPERTIES
+    ENVIRONMENT
+      ACCOUNT_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
+      ACCOUNT_HEADER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/account/account.h
+      ACCOUNT_LIBRARY_FILE=$<TARGET_FILE:account>
+  )
+```
+
+这种方法在不同的平台上并不总可行，CMake提供了解决这个问题的方法。下面的代码片段与上面给出的代码片段相同，在执行实际的Python测试脚本之前，通过`CMAKE_COMMAND`调用CMake来预先设置环境变量:
+
+```cmake
+add_test(
+  NAME
+  	python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env
+    ACCOUNT_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
+    ACCOUNT_HEADER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/account/account.h
+    ACCOUNT_LIBRARY_FILE=$<TARGET_FILE:account>
+    ${PYTHON_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/account/test.py
+  )
+```
+
+同样，要注意使用生成器表达式`$<TARGET_FILE:account>`来传递库文件的位置。
+
+我们已经使用`ctest`命令执行测试，CMake还将为生成器创建目标(Unix Makefile生成器为`make test`，Ninja工具为`ninja test`，或者Visual Studio为`RUN_TESTS`)。这意味着，还有另一种(几乎)可移植的方法来运行测试：
+
+```bash
+$ cmake --build . --target test
+```
+
+不幸的是，当使用Visual Studio生成器时，我们需要使用`RUN_TESTS`来代替:
+
+```bash
+$ cmake --build . --target RUN_TESTS
+```
+
+**NOTE**:*`ctest`提供了丰富的命令行参数。其中一些内容将在以后的示例中探讨。要获得完整的列表，需要使用`ctest --help`来查看。命令`cmake --help-manual ctest`会将向屏幕输出完整的ctest手册。*
+
+## 使用Catch2库进行单元测试
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-02 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+前面的配置中，使用返回码来表示`test.cpp`测试的成功或失败。对于简单功能没问题，但是通常情况下，我们想要使用一个测试框架，它提供了相关基础设施来运行更复杂的测试，包括固定方式进行测试，与数值公差的比较，以及在测试失败时输出更好的错误报告。这里，我们用目前比较流行的测试库Catch2( https://github.com/catchorg/Catch2 )来进行演示。这个测试框架有个很好的特性，它可以通过单个头库包含在项目中进行测试，这使得编译和更新框架特别容易。这个配置中，我们将CMake和Catch2结合使用，来测试上一个求和代码。
+
+我们需要`catch.hpp`头文件，可以从 https://github.com/catchorg/Catch2 (我们使用的是版本2.0.1)下载，并将它与`test.cpp`一起放在项目的根目录下。
+
+### 准备工作
+
+`main.cpp`、`sum_integers.cpp`和`sum_integers.hpp`与之前的示例相同，但将更新`test.cpp`:
+
+```c++
+#include "sum_integers.hpp"
+
+// this tells catch to provide a main()
+// only do this in one cpp file
+#define CATCH_CONFIG_MAIN
+#include "catch.hpp"
+#include <vector>
+
+TEST_CASE("Sum of integers for a short vector", "[short]")
+{
+  auto integers = {1, 2, 3, 4, 5};
+  REQUIRE(sum_integers(integers) == 15);
+}
+
+TEST_CASE("Sum of integers for a longer vector", "[long]")
+{
+  std::vector<int> integers;
+  for (int i = 1; i < 1001; ++i)
+  {
+    integers.push_back(i);
+  }
+  REQUIRE(sum_integers(integers) == 500500);
+}
+```
+
+`catch.hpp`头文件可以从https://github.com/catchorg/Catch2 (版本为2.0.1)下载，并将它与`test.cpp`放在项目的根目录中。
+
+### 具体实施
+
+使用Catch2库，需要修改之前的所使用`CMakeList.txt`：
+
+1. 保持`CMakeLists.txt`大多数部分内容不变:
+
+```cmake
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+# project name and language
+project(recipe-02 LANGUAGES CXX)
+
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# example library
+add_library(sum_integers sum_integers.cpp)
+
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+
+# testing binary
+add_executable(cpp_test test.cpp)
+target_link_libraries(cpp_test sum_integers)
+```
+
+2. 对于上一个示例的配置，需要保留一个测试，并重命名它。注意，`--success`选项可传递给单元测试的可执行文件。这是一个Catch2选项，测试成功时，也会有输出:
+
+```cmake
+enable_testing()
+
+add_test(
+  NAME catch_test
+  COMMAND $<TARGET_FILE:cpp_test> --success
+  )
+```
+
+3. 就是这样！让我们来配置、构建和测试。CTest中，使用`-V`选项运行测试，以获得单元测试可执行文件的输出:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest -V
+
+UpdateCTestConfiguration from :/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build/DartConfiguration.tcl
+UpdateCTestConfiguration from :/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build/DartConfiguration.tcl
+Test project /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+Start 1: catch_test
+1: Test command: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build/cpp_test "--success"
+1: Test timeout computed to be: 10000000
+1:
+1: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1: cpp_test is a Catch v2.0.1 host application.
+1: Run with -? for options
+1:
+1: ----------------------------------------------------------------
+1: Sum of integers for a short vector
+1: ----------------------------------------------------------------
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:10
+1: ...................................................................
+1:
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:12:
+1: PASSED:
+1: REQUIRE( sum_integers(integers) == 15 )
+1: with expansion:
+1: 15 == 15
+1:
+1: ----------------------------------------------------------------
+1: Sum of integers for a longer vector
+1: ----------------------------------------------------------------
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:15
+1: ...................................................................
+1:
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:20:
+1: PASSED:
+1: REQUIRE( sum_integers(integers) == 500500 )
+1: with expansion:
+1: 500500 (0x7a314) == 500500 (0x7a314)
+1:
+1: ===================================================================
+1: All tests passed (2 assertions in 2 test cases)
+1:
+1/1 Test #1: catch_test ....................... Passed 0.00 s
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) = 0.00 se
+```
+
+4. 我们也可以测试`cpp_test`的二进制文件，可以直接从Catch2中看到输出:
+
+```bash
+$ ./cpp_test --success
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+cpp_test is a Catch v2.0.1 host application.
+Run with -? for options
+-------------------------------------------------------------------
+Sum of integers for a short vector
+-------------------------------------------------------------------
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:10
+...................................................................
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:12:
+PASSED:
+REQUIRE( sum_integers(integers) == 15 )
+with expansion:
+15 == 15
+-------------------------------------------------------------------
+Sum of integers for a longer vector
+-------------------------------------------------------------------
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:15
+...................................................................
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:20:
+PASSED:
+REQUIRE( sum_integers(integers) == 500500 )
+with expansion:
+500500 (0x7a314) == 500500 (0x7a314)
+===================================================================
+All tests passed (2 assertions in 2 test cases)
+```
+
+5. Catch2将生成一个可执行文件，还可以尝试执行以下命令，以探索单元测试框架提供的选项:
+
+```bash
+$ ./cpp_test --help
+```
+
+### 工作原理
+
+Catch2是一个单头文件测试框架，所以不需要定义和构建额外的目标。只需要确保CMake能找到`catch.hpp`，从而构建`test.cpp`即可。为了方便起见，将它放在与`test.cpp`相同的目录中，我们可以选择一个不同的位置，并使用`target_include_directory`指示该位置。另一种方法是将头部封装到接口库中，这可以在Catch2文档中说明( https://github.com/catchorg/catch2/blob/maste/docs/build.systems.md#cmake ):
+
+```cmake
+# Prepare "Catch" library for other executables 
+set(CATCH_INCLUDE_DIR
+${CMAKE_CURRENT_SOURCE_DIR}/catch) 
+
+add_library(Catch
+INTERFACE) 
+
+target_include_directories(Catch INTERFACE
+${CATCH_INCLUDE_DIR})
+```
+
+然后，我们对库进行如下链接:
+
+```cmake
+target_link_libraries(cpp_test Catch)
+```
+
+回想一下第3中的讨论，在第1章从简单的可执行库到接口库，是CMake提供的伪目标库，这些伪目标库对于指定项目外部目标的需求非常有用。
+
+### 更多信息
+
+这是一个简单的例子，主要关注CMake。当然，Catch2提供了更多功能。有关Catch2框架的完整文档，可访问 https://github.com/catchorg/Catch2 。
+
+Catch2代码库包含有CMake函数，用于解析Catch测试并自动创建CMake测试，不需要显式地输入`add_test()`函数，可见 https://github.com/catchorg/Catch2/blob/master/contrib/ParseAndAddCatchTests.cmake 。
+
+## 使用Google Test库进行单元测试
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-03 中找到，包含一个C++的示例。该示例在CMake 3.11版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。在代码库中，有一个支持CMake 3.5的例子。*
+
+本示例中，我们将演示如何在CMake的帮助下使用Google Test框架实现单元测试。与前一个配置相比，Google Test框架不仅仅是一个头文件，也是一个库，包含两个需要构建和链接的文件。可以将它们与我们的代码项目放在一起，但是为了使代码项目更加轻量级，我们将选择在配置时，下载一个定义良好的Google Test，然后构建框架并链接它。我们将使用较新的`FetchContent`模块(从CMake版本3.11开始可用)。第8章中会继续讨论`FetchContent`，在这里将讨论模块在底层是如何工作的，并且还将演示如何使用`ExternalProject_Add`进行模拟。此示例的灵感来自(改编自) https://cmake.org/cmake/help/v3.11/module/FetchContent.html 示例。
+
+### 准备工作
+
+`main.cpp`、`sum_integers.cpp`和`sum_integers.hpp`与之前相同，修改`test.cpp`:
+
+```c++
+#include "sum_integers.hpp"
+#include "gtest/gtest.h"
+
+#include <vector>
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}
+
+TEST(example, sum_zero) {
+  auto integers = {1, -1, 2, -2, 3, -3};
+  auto result = sum_integers(integers);
+  ASSERT_EQ(result, 0);
+}
+
+TEST(example, sum_five) {
+  auto integers = {1, 2, 3, 4, 5};
+  auto result = sum_integers(integers);
+  ASSERT_EQ(result, 15);
+}
+```
+
+如上面的代码所示，我们显式地将`gtest.h`，而不将其他Google Test源放在代码项目存储库中，会在配置时使用`FetchContent`模块下载它们。
+
+### 具体实施
+
+下面的步骤描述了如何设置`CMakeLists.txt`，使用GTest编译可执行文件及其相应的测试:
+
+1. 与前两个示例相比，`CMakeLists.txt`的开头基本没有变化，CMake 3.11才能使用`FetchContent`模块:
+
+```cmake
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
+
+# project name and language
+project(recipe-03 LANGUAGES CXX)
+
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+# example library
+add_library(sum_integers sum_integers.cpp)
+
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+```
+
+2. 然后引入一个`if`，检查`ENABLE_UNIT_TESTS`。默认情况下，它为`ON`，但有时需要设置为`OFF`，以免在没有网络连接时，也能使用Google Test:
+
+```cmake
+option(ENABLE_UNIT_TESTS "Enable unit tests" ON)
+message(STATUS "Enable testing: ${ENABLE_UNIT_TESTS}")
+
+if(ENABLE_UNIT_TESTS)
+	# all the remaining CMake code will be placed here
+endif()
+```
+
+3. `if`内部包含`FetchContent`模块，声明要获取的新内容，并查询其属性:
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG release-1.8.0
+)
+
+FetchContent_GetProperties(googletest)
+```
+
+4. 如果内容还没有获取到，将尝试获取并配置它。这需要添加几个可以链接的目标。本例中，我们对`gtest_main`感兴趣。该示例还包含一些变通方法，用于使用在Visual Studio下的编译:
+
+```cmake
+if(NOT googletest_POPULATED)
+  FetchContent_Populate(googletest)
+  
+  # Prevent GoogleTest from overriding our compiler/linker options
+  # when building with Visual Studio
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  # Prevent GoogleTest from using PThreads
+  set(gtest_disable_pthreads ON CACHE BOOL "" FORCE)
+  
+  # adds the targers: gtest, gtest_main, gmock, gmock_main
+  add_subdirectory(
+    ${googletest_SOURCE_DIR}
+    ${googletest_BINARY_DIR}
+    )
+    
+  # Silence std::tr1 warning on MSVC
+  if(MSVC)
+    foreach(_tgt gtest gtest_main gmock gmock_main)
+      target_compile_definitions(${_tgt}
+        PRIVATE
+        	"_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING"
+      )
+    endforeach()
+  endif()
+endif()
+```
+
+5. 然后，使用`target_sources`和`target_link_libraries`命令，定义`cpp_test`可执行目标并指定它的源文件:
+
+```cmake
+add_executable(cpp_test "")
+
+target_sources(cpp_test
+  PRIVATE
+  	test.cpp
+  )
+
+target_link_libraries(cpp_test
+  PRIVATE
+    sum_integers
+    gtest_main
+  )
+```
+
+6. 最后，使用`enable_test`和`add_test`命令来定义单元测试:
+
+```cmake
+enable_testing()
+
+add_test(
+  NAME google_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+```
+
+7. 现在，准备配置、构建和测试项目:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+
+Test project /home/user/cmake-cookbook/chapter-04/recipe-03/cxx-example/build
+	Start 1: google_test
+1/1 Test #1: google_test ...................... Passed 0.00 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) = 0.00 sec
+```
+
+8. 可以直接运行`cpp_test`:
+
+```bash
+$ ./cpp_test
+
+[==========] Running 2 tests from 1 test case.
+[----------] Global test environment set-up.
+[----------] 2 tests from example
+[ RUN ] example.sum_zero
+[ OK ] example.sum_zero (0 ms)
+[ RUN ] example.sum_five
+[ OK ] example.sum_five (0 ms)
+[----------] 2 tests from example (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 2 tests from 1 test case ran. (0 ms total)
+[ PASSED ] 2 tests.
+```
+
+### 工作原理
+
+`FetchContent`模块支持通过`ExternalProject`模块，在配置时填充内容，并在其3.11版本中成为CMake的标准部分。而`ExternalProject_Add()`在构建时(见第8章)进行下载操作，这样`FetchContent`模块使得构建可以立即进行，这样获取的主要项目和外部项目(在本例中为Google Test)仅在第一次执行CMake时调用，使用`add_subdirectory`可以嵌套。
+
+为了获取Google Test，首先声明外部内容:
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+	googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG release-1.8.0
+)
+```
+
+本例中，我们获取了一个带有特定标记的Git库(release-1.8.0)，但是我们也可以从Subversion、Mercurial或HTTP(S)源获取一个外部项目。有关可用选项，可参考相应的`ExternalProject_Add`命令的选项，网址是https://cmake.org/cmake/help/v3.11/module/ExternalProject.html 。
+
+调用`FetchContent_Populate()`之前，检查是否已经使用`FetchContent_GetProperties()`命令处理了内容填充；否则，调用`FetchContent_Populate()`超过一次后，就会抛出错误。
+
+`FetchContent_Populate(googletest)`用于填充源并定义`googletest_SOURCE_DIR`和`googletest_BINARY_DIR`，可以使用它们来处理Google Test项目(使用`add_subdirectory()`，因为它恰好也是一个CMake项目):
+
+```cmake
+add_subdirectory(
+  ${googletest_SOURCE_DIR}
+  ${googletest_BINARY_DIR}
+  )
+```
+
+前面定义了以下目标：`gtest`、`gtest_main`、`gmock`和`gmock_main`。这个配置中，作为单元测试示例的库依赖项，我们只对`gtest_main`目标感兴趣：
+
+```cmake
+target_link_libraries(cpp_test
+  PRIVATE
+    sum_integers
+    gtest_main
+)
+```
+
+构建代码时，可以看到如何正确地对Google Test进行配置和构建。有时，我们希望升级到更新的Google Test版本，这时需要更改的唯一一行就是详细说明`GIT_TAG`的那一行。
+
+### 更多信息
+
+了解了`FetchContent`及其构建时的近亲`ExternalProject_Add`，我们将在第8章中重新讨论这些命令。有关可用选项的详细讨论，可参考https://cmake.org/cmake/help/v3.11/module/FetchContent.html 。
+
+本示例中，我们在配置时获取源代码，也可以将它们安装在系统环境中，并使用`FindGTest`模块来检测库和头文件(https://cmake.org/cmake/help/v3.5/module/FindTest.html )。从3.9版开始，CMake还提供了一个Google Test模块(https://cmake.org/cmake/help/v3.9/module/GoogleTest.html )，它提供了一个`gtest_add_tests`函数。通过搜索Google Test宏的源代码，可以使用此函数自动添加测试。
+
+当然，Google Test有许多有趣的的特性，可在 https://github.com/google/googletest 查看。
+
+## 使用Boost Test进行单元测试
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-04 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+Boost Test是在C++社区中，一个非常流行的单元测试框架。本例中，我们将演示如何使用Boost Test，对求和示例代码进行单元测试。
+
+### 准备工作
+
+`main.cpp`、`sum_integers.cpp`和`sum_integers.hpp`与之前的示例相同，将更新`test.cpp`作为使用Boost Test库进行的单元测试：
+
+
+
+```c++
+#include "sum_integers.hpp"
+
+#include <vector>
+
+#define BOOST_TEST_MODULE example_test_suite
+#include <boost/test/unit_test.hpp>
+BOOST_AUTO_TEST_CASE(add_example)
+{
+  auto integers = {1, 2, 3, 4, 5};
+  auto result = sum_integers(integers);
+  BOOST_REQUIRE(result == 15);
+}
+```
+
+### 具体实施
+
+以下是使用Boost Test构建项目的步骤:
+
+1. 先从`CMakeLists.txt`开始:
+
+```cmake
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+# project name and language
+project(recipe-04 LANGUAGES CXX)
+
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# example library
+add_library(sum_integers sum_integers.cpp)
+
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+```
+
+2. 检测Boost库并将`cpp_test`链接到它:
+
+```cmake
+find_package(Boost 1.54 REQUIRED COMPONENTS unit_test_framework)
+
+add_executable(cpp_test test.cpp)
+
+target_link_libraries(cpp_test
+  PRIVATE
+    sum_integers
+    Boost::unit_test_framework
+  )
+  
+# avoid undefined reference to "main" in test.cpp
+target_compile_definitions(cpp_test
+  PRIVATE
+  	BOOST_TEST_DYN_LINK
+  )
+```
+
+3. 最后，定义单元测试:
+
+```cmake
+enable_testing()
+
+add_test(
+  NAME boost_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+```
+
+4. 下面是需要配置、构建和测试代码的所有内容:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+
+Test project /home/user/cmake-recipes/chapter-04/recipe-04/cxx-example/build
+Start 1: boost_test
+1/1 Test #1: boost_test ....................... Passed 0.01 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.01 sec
+
+$ ./cpp_test
+
+Running 1 test case...
+*** No errors detected
+```
+
+### 工作原理
+
+使用`find_package`来检测Boost的`unit_test_framework`组件(参见第3章，第8节)。我们认为这个组件是`REQUIRED`的，如果在系统环境中找不到它，配置将停止。`cpp_test`目标需要知道在哪里可以找到Boost头文件，并且需要链接到相应的库；它们都由`IMPORTED`库目标`Boost::unit_test_framework`提供，该目标由`find_package`设置。
+
+### 更多信息
+
+本示例中，我们假设系统上安装了Boost。或者，我们可以在编译时获取并构建Boost依赖项。然而，Boost不是轻量级依赖项。我们的示例代码中，我们只使用了最基本的设施，但是Boost提供了丰富的特性和选项，有感兴趣的读者可以去这里看看：http://www.boost.org/doc/libs/1_65_1/libs/test/doc/html/index.html 。
+
+## 使用动态分析来检测内存缺陷
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-05 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+内存缺陷：写入或读取越界，或者内存泄漏(已分配但从未释放的内存)，会产生难以跟踪的bug，最好尽早将它们检查出来。Valgrind( [http://valgrind.org](http://valgrind.org/) )是一个通用的工具，用来检测内存缺陷和内存泄漏。本节中，我们将在使用CMake/CTest测试时使用Valgrind对内存问题进行警告。
+
+### 备工作
+
+对于这个配置，需要三个文件。第一个是测试的实现(我们可以调用文件`leaky_implementation.cpp`):
+
+```c++
+#include "leaky_implementation.hpp"
+
+int do_some_work() {
+  
+  // we allocate an array
+  double *my_array = new double[1000];
+  
+  // do some work
+  // ...
+  
+  // we forget to deallocate it
+  // delete[] my_array;
+  
+  return 0;
+}
+```
+
+还需要相应的头文件(`leaky_implementation.hpp`):
+
+```c++
+#pragma once
+
+int do_some_work();
+```
+
+并且，需要测试文件(`test.cpp`):
+
+```c++
+#include "leaky_implementation.hpp"
+
+int main() {
+  int return_code = do_some_work();
+  
+  return return_code;
+}
+```
+
+我们希望测试通过，因为`return_code`硬编码为`0`。这里我们也期望检测到内存泄漏，因为`my_array`没有释放。
+
+### 具体实施
+
+下面展示了如何设置CMakeLists.txt来执行代码动态分析:
+
+1. 我们首先定义CMake最低版本、项目名称、语言、目标和依赖关系:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+project(recipe-05 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_library(example_library leaky_implementation.cpp)
+
+add_executable(cpp_test test.cpp)
+target_link_libraries(cpp_test example_library)
+```
+
+2. 然后，定义测试目标，还定义了`MEMORYCHECK_COMMAND`:
+
+```cmake
+find_program(MEMORYCHECK_COMMAND NAMES valgrind)
+set(MEMORYCHECK_COMMAND_OPTIONS "--trace-children=yes --leak-check=full")
+
+# add memcheck test action
+include(CTest)
+
+enable_testing()
+
+add_test(
+  NAME cpp_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+```
+
+3. 运行测试集，报告测试通过情况，如下所示:
+
+```bash
+$ ctest
+
+Test project /home/user/cmake-recipes/chapter-04/recipe-05/cxx-example/build
+Start 1: cpp_test
+1/1 Test #1: cpp_test ......................... Passed 0.00 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.00 sec
+```
+
+4. 现在，我们希望检查内存缺陷，可以观察到被检测到的内存泄漏:
+
+```bash
+$ ctest -T memcheck
+
+Site: myhost
+Build name: Linux-c++
+Create new tag: 20171127-1717 - Experimental
+Memory check project /home/user/cmake-recipes/chapter-04/recipe-05/cxx-example/build
+Start 1: cpp_test
+1/1 MemCheck #1: cpp_test ......................... Passed 0.40 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.40 sec
+-- Processing memory checking output:
+1/1 MemCheck: #1: cpp_test ......................... Defects: 1
+MemCheck log files can be found here: ( * corresponds to test number)
+/home/user/cmake-recipes/chapter-04/recipe-05/cxx-example/build/Testing/Temporary/MemoryChecker.*.log
+Memory checking results:
+Memory Leak - 1
+```
+
+1. 最后一步，应该尝试修复内存泄漏，并验证`ctest -T memcheck`没有报告错误。
+
+### 工作原理
+
+使用`find_program(MEMORYCHECK_COMMAND NAMES valgrind)`查找valgrind，并将`MEMORYCHECK_COMMAND`设置为其绝对路径。我们显式地包含CTest模块来启用`memcheck`测试操作，可以使用`CTest -T memcheck`来启用这个操作。此外，使用`set(MEMORYCHECK_COMMAND_OPTIONS "--trace-children=yes --leak-check=full")`，将相关参数传递给Valgrind。内存检查会创建一个日志文件，该文件可用于详细记录内存缺陷信息。
+
+**NOTE**:*一些工具，如代码覆盖率和静态分析工具，可以进行类似地设置。然而，其中一些工具的使用更加复杂，因为需要专门的构建和工具链。Sanitizers就是这样一个例子。有关更多信息，请参见https://github.com/arsenm/sanitizers-cmake 。另外，请参阅第14章，其中讨论了AddressSanitizer和ThreadSanitizer。*
+
+### 更多信息
+
+该方法可向测试面板报告内存缺陷，这里演示的功能也可以独立于测试面板使用。我们将在第14章中重新讨论，与CDash一起使用的情况。
+
+有关Valgrind及其特性和选项的文档，请参见[http://valgrind.org](http://valgrind.org/) 。
+
+##  预期测试失败
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-06 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+理想情况下，我们希望所有的测试能在每个平台上通过。然而，也可能想要测试预期的失败或异常是否会在受控的设置中进行。这种情况下，我们将把预期的失败定义为成功。我们认为，这通常应该交给测试框架(例如：Catch2或Google Test)的任务，它应该检查预期的失败并向CMake报告成功。但是，在某些情况下，您可能希望将测试的非零返回代码定义为成功；换句话说，您可能想要颠倒成功和失败的定义。在本示例中，我们将演示这种情况。
+
+### 准备工作
+
+这个配置的测试用例是一个很小的Python脚本(`test.py`)，它总是返回1，CMake将其解释为失败:
+
+```python
+import sys
+
+# simulate a failing test
+sys.exit(1)
+```
+
+### 实施步骤
+
+如何编写CMakeLists.txt来完成我们的任务:
+
+1. 这个示例中，不需要任何语言支持从CMake，但需要Python:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-06 LANGUAGES NONE)
+find_package(PythonInterp REQUIRED)
+```
+
+2. 然后，定义测试并告诉CMake，测试预期会失败:
+
+```cmake
+enable_testing()
+add_test(example ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py)
+set_tests_properties(example PROPERTIES WILL_FAIL true)
+```
+
+3. 最后，报告是一个成功的测试，如下所示:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+
+Test project /home/user/cmake-recipes/chapter-04/recipe-06/example/build
+Start 1: example
+1/1 Test #1: example .......................... Passed 0.00 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.01 sec
+```
+
+### 工作原理
+
+使用`set_tests_properties(example PROPERTIES WILL_FAIL true)`，将属性`WILL_FAIL`设置为`true`，这将转换成功与失败。但是，这个特性不应该用来临时修复损坏的测试。
+
+### 更多信息
+
+如果需要更大的灵活性，可以将测试属性`PASS_REGULAR_EXPRESSION`和`FAIL_REGULAR_EXPRESSION`与`set_tests_properties`组合使用。如果设置了这些参数，测试输出将根据参数给出的正则表达式列表进行检查，如果匹配了正则表达式，测试将通过或失败。可以在测试中设置其他属性，完整的属性列表可以参考：https://cmake.org/cmake/help/v3.5/manual/cmake-properties.7.html#properties-on-tests 。
+
+## 使用超时测试运行时间过长的测试
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-07 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+理想情况下，测试集应该花很短的时间进行，以便开发人员经常运行测试，并使每个提交(变更集)进行测试成为可能(或更容易)。然而，有些测试可能会花费更长的时间或者被卡住(例如，由于高文件I/O负载)，我们可能需要设置超时来终止耗时过长的测试，它们延迟了整个测试，并阻塞了部署管道。本示例中，我们将演示一种设置超时的方法，可以针对每个测试设置不同的超时。
+
+### 准备工作
+
+这个示例是一个Python脚本(`test.py`)，它总是返回0。为了保持这种简单性，并保持对CMake方面的关注，测试脚本除了等待两秒钟外什么也不做。实际中，这个测试脚本将执行更有意义的工作:
+
+```python
+import sys
+import time
+
+# wait for 2 seconds
+time.sleep(2)
+
+# report success
+sys.exit(0)
+```
+
+### 具体实施
+
+我们需要通知CTest终止测试，如下:
+
+1. 我们定义项目名称，启用测试，并定义测试:
+
+```cmake
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+# project name
+project(recipe-07 LANGUAGES NONE)
+
+# detect python
+find_package(PythonInterp REQUIRED)
+
+# define tests
+enable_testing()
+
+# we expect this test to run for 2 seconds
+add_test(example ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py)
+```
+
+2. 另外，我们为测试指定时限，设置为10秒:
+
+```cmake
+set_tests_properties(example PROPERTIES TIMEOUT 10)
+```
+
+3. 知道了如何进行配置和构建，并希望测试能够通过:
+
+```bash
+$ ctest
+
+Test project /home/user/cmake-recipes/chapter-04/recipe-07/example/build
+Start 1: example
+1/1 Test #1: example .......................... Passed 2.01 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 2.01 sec
+```
+
+4. 现在，为了验证超时是否有效，我们将`test.py`中的`sleep`命令增加到11秒，并重新运行测试:
+
+```bash
+$ ctest
+
+Test project /home/user/cmake-recipes/chapter-04/recipe-07/example/build
+Start 1: example
+1/1 Test #1: example ..........................***Timeout 10.01 sec
+0% tests passed, 1 tests failed out of 1
+Total Test time (real) = 10.01 sec
+The following tests FAILED:
+1 - example (Timeout)
+Errors while running CTest
+```
+
+### 工作原理
+
+`TIMEOUT`是一个方便的属性，可以使用`set_tests_properties`为单个测试指定超时时间。如果测试运行超过了这个设置时间，不管出于什么原因(测试已经停止或者机器太慢)，测试将被终止并标记为失败。
+
+## 并行测试
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-08 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+大多数现代计算机都有4个或更多个CPU核芯。CTest有个非常棒的特性，能够并行运行测试，如果您有多个可用的核。这可以减少测试的总时间，而减少总测试时间才是真正重要的，从而开发人员频繁地进行测试。本示例中，我们将演示这个特性，并讨论如何优化测试以获得最大的性能。
+
+其他测试可以进行相应地表示，我们把这些测试脚本放在`CMakeLists.txt`同目录下面的test目录中。
+
+### 准备工作
+
+我们假设测试集包含标记为a, b，…，j的测试用例，每一个都有特定的持续时间:
+
+| 测试用例   | 该单元的耗时 |
+| :--------- | :----------- |
+| a, b, c, d | 0.5          |
+| e, f, g    | 1.5          |
+| h          | 2.5          |
+| i          | 3.5          |
+| j          | 4.5          |
+
+时间单位可以是分钟，但是为了保持简单和简短，我们将使用秒。为简单起见，我们可以用Python脚本表示`test a`，它消耗0.5个时间单位:
+
+```python
+import sys
+import time
+
+# wait for 0.5 seconds
+time.sleep(0.5)
+
+# finally report success
+sys.exit(0)
+```
+
+其他测试同理。我们将把这些脚本放在`CMakeLists.txt`下面，一个名为`test`的目录中。
+
+### 具体实施
+
+对于这个示例，我们需要声明一个测试列表，如下:
+
+1. `CMakeLists.txt`非常简单：
+
+```cmake
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+# project name
+project(recipe-08 LANGUAGES NONE)
+
+# detect python
+find_package(PythonInterp REQUIRED)
+
+# define tests
+enable_testing()
+add_test(a ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/a.py)
+add_test(b ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/b.py)
+add_test(c ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/c.py)
+add_test(d ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/d.py)
+add_test(e ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/e.py)
+add_test(f ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/f.py)
+add_test(g ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/g.py)
+add_test(h ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/h.py)
+add_test(i ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/i.py)
+add_test(j ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/j.py)
+```
+
+2. 我们可以配置项目，使用`ctest`运行测试，总共需要17秒:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ ctest
+
+Start 1: a
+1/10 Test #1: a ................................ Passed 0.51 sec
+Start 2: b
+2/10 Test #2: b ................................ Passed 0.51 sec
+Start 3: c
+3/10 Test #3: c ................................ Passed 0.51 sec
+Start 4: d
+4/10 Test #4: d ................................ Passed 0.51 sec
+Start 5: e
+5/10 Test #5: e ................................ Passed 1.51 sec
+Start 6: f
+6/10 Test #6: f ................................ Passed 1.51 sec
+Start 7: g
+7/10 Test #7: g ................................ Passed 1.51 sec
+Start 8: h
+8/10 Test #8: h ................................ Passed 2.51 sec
+Start 9: i
+9/10 Test #9: i ................................ Passed 3.51 sec
+Start 10: j
+10/10 Test #10: j ................................ Passed 4.51 sec
+100% tests passed, 0 tests failed out of 10
+Total Test time (real) = 17.11 sec
+```
+
+3. 现在，如果机器有4个内核可用，我们可以在不到5秒的时间内在4个内核上运行测试集:
+
+```bash
+$ ctest --parallel 4
+
+Start 10: j
+Start 9: i
+Start 8: h
+Start 5: e
+1/10 Test #5: e ................................ Passed 1.51 sec
+Start 7: g
+2/10 Test #8: h ................................ Passed 2.51 sec
+Start 6: f
+3/10 Test #7: g ................................ Passed 1.51 sec
+Start 3: c
+4/10 Test #9: i ................................ Passed 3.63 sec
+5/10 Test #3: c ................................ Passed 0.60 sec
+Start 2: b
+Start 4: d
+6/10 Test #6: f ................................ Passed 1.51 sec
+7/10 Test #4: d ................................ Passed 0.59 sec
+8/10 Test #2: b ................................ Passed 0.59 sec
+Start 1: a
+9/10 Test #10: j ................................ Passed 4.51 sec
+10/10 Test #1: a ................................ Passed 0.51 sec
+100% tests passed, 0 tests failed out of 10
+Total Test time (real) = 4.74 sec
+```
+
+### 工作原理
+
+可以观察到，在并行情况下，测试j、i、h和e同时开始。当并行运行时，总测试时间会有显著的减少。观察`ctest --parallel 4`的输出，我们可以看到并行测试运行从最长的测试开始，最后运行最短的测试。从最长的测试开始是一个非常好的策略。这就像打包移动的盒子：从较大的项目开始，然后用较小的项目填补空白。a-j测试在4个核上的叠加比较，从最长的开始，如下图所示:
+
+```bash
+--> time
+core 1: jjjjjjjjj
+core 2: iiiiiiibd
+core 3: hhhhhggg
+core 4: eeefffac
+```
+
+按照定义测试的顺序运行，运行结果如下:
+
+```bash
+--> time
+core 1: aeeeiiiiiii
+core 2: bfffjjjjjjjjj
+core 3: cggg
+core 4: dhhhhh
+```
+
+按照定义测试的顺序运行测试，总的来说需要更多的时间，因为这会让2个核大部分时间处于空闲状态(这里的核3和核4)。CMake知道每个测试的时间成本，是因为我们先顺序运行了测试，将每个测试的成本数据记录在`test/Temporary/CTestCostData.txt`文件中:
+
+```bash
+a 1 0.506776
+b 1 0.507882
+c 1 0.508175
+d 1 0.504618
+e 1 1.51006
+f 1 1.50975
+g 1 1.50648
+h 1 2.51032
+i 1 3.50475
+j 1 4.51111
+```
+
+如果在配置项目之后立即开始并行测试，它将按照定义测试的顺序运行测试，在4个核上的总测试时间明显会更长。这意味着什么呢？这意味着，我们应该减少的时间成本来安排测试？这是一种决策，但事实证明还有另一种方法，我们可以自己表示每次测试的时间成本:
+
+```cmake
+add_test(a ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/a.py)
+add_test(b ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/b.py)
+add_test(c ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/c.py)
+add_test(d ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/d.py)
+set_tests_properties(a b c d PROPERTIES COST 0.5)
+
+add_test(e ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/e.py)
+add_test(f ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/f.py)
+add_test(g ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/g.py)
+set_tests_properties(e f g PROPERTIES COST 1.5)
+
+add_test(h ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/h.py)
+set_tests_properties(h PROPERTIES COST 2.5)
+
+add_test(i ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/i.py)
+set_tests_properties(i PROPERTIES COST 3.5)
+
+add_test(j ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/j.py)
+set_tests_properties(j PROPERTIES COST 4.5)
+```
+
+成本参数可以是一个估计值，也可以从`test/Temporary/CTestCostData.txt`中提取。
+
+### 更多信息
+
+除了使用`ctest --parallel N`，还可以使用环境变量`CTEST_PARALLEL_LEVEL`将其设置为所需的级别。
+
+## 运行测试子集
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-09 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+前面的示例中，我们学习了如何在CMake的帮助下并行运行测试，并讨论了从最长的测试开始是最高效的。虽然，这种策略将总测试时间最小化，但是在特定特性的代码开发期间，或者在调试期间，我们可能不希望运行整个测试集。对于调试和代码开发，我们只需要能够运行选定的测试子集。在本示例中，我们将实现这一策略。
+
+### 准备工作
+
+在这个例子中，我们假设总共有六个测试：前三个测试比较短，名称分别为`feature-a`、`feature-b`和`feature-c`，还有三个长测试，名称分别是`feature-d`、`benchmark-a`和`benchmark-b`。这个示例中，我们可以用Python脚本表示这些测试，可以在其中调整休眠时间:
+
+```python
+import sys
+import time
+
+# wait for 0.1 seconds
+time.sleep(0.1)
+
+# finally report success
+sys.exit(0)
+```
+
+### 具体实施
+
+以下是我们CMakeLists.txt文件内容的详细内容:
+
+1. `CMakeLists.txt`中，定义了六个测试:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+# project name
+project(recipe-09 LANGUAGES NONE)
+
+# detect python
+find_package(PythonInterp REQUIRED)
+
+# define tests
+enable_testing()
+
+add_test(
+  NAME feature-a
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-a.py
+  )
+add_test(
+  NAME feature-b
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-b.py
+  )
+add_test(
+  NAME feature-c
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-c.py
+  )
+add_test(
+  NAME feature-d
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-d.py
+  )
+add_test(
+  NAME benchmark-a
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/benchmark-a.py
+  )
+add_test(
+  NAME benchmark-b
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/benchmark-b.py
+  )
+```
+
+2. 此外，我们给较短的测试贴上`quick`的标签，给较长的测试贴上`long`的标签:
+
+```cmake
+set_tests_properties(
+  feature-a
+  feature-b
+  feature-c
+  PROPERTIES
+  	LABELS "quick"
+  )
+set_tests_properties(
+  feature-d
+  benchmark-a
+  benchmark-b
+  PROPERTIES
+  	LABELS "long"
+  )
+```
+
+3. 我们现在可以运行测试集了，如下:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ ctest
+
+Start 1: feature-a
+1/6 Test #1: feature-a ........................ Passed 0.11 sec
+Start 2: feature-b
+2/6 Test #2: feature-b ........................ Passed 0.11 sec
+Start 3: feature-c
+3/6 Test #3: feature-c ........................ Passed 0.11 sec
+Start 4: feature-d
+4/6 Test #4: feature-d ........................ Passed 0.51 sec
+Start 5: benchmark-a
+5/6 Test #5: benchmark-a ...................... Passed 0.51 sec
+Start 6: benchmark-b
+6/6 Test #6: benchmark-b ...................... Passed 0.51 sec
+100% tests passed, 0 tests failed out of 6
+Label Time Summary:
+long = 1.54 sec*proc (3 tests)
+quick = 0.33 sec*proc (3 tests)
+Total Test time (real) = 1.87 sec
+```
+
+### 工作原理
+
+现在每个测试都有一个名称和一个标签。CMake中所有的测试都是有编号的，所以它们也带有唯一编号。定义了测试标签之后，我们现在可以运行整个集合，或者根据它们的名称(使用正则表达式)、标签或编号运行测试。
+
+按名称运行测试(运行所有具有名称匹配功能的测试):
+
+```bash
+$ ctest -R feature
+
+Start 1: feature-a
+1/4 Test #1: feature-a ........................ Passed 0.11 sec
+Start 2: feature-b
+2/4 Test #2: feature-b ........................ Passed 0.11 sec
+Start 3: feature-c
+3/4 Test #3: feature-c ........................ Passed 0.11 sec
+Start 4: feature-d
+4/4 Test #4: feature-d ........................ Passed 0.51 sec
+100% tests passed, 0 tests failed out of 4
+```
+
+按照标签运行测试(运行所有的长测试):
+
+```bash
+$ ctest -L long
+
+Start 4: feature-d
+1/3 Test #4: feature-d ........................ Passed 0.51 sec
+Start 5: benchmark-a
+2/3 Test #5: benchmark-a ...................... Passed 0.51 sec
+Start 6: benchmark-b
+3/3 Test #6: benchmark-b ...................... Passed 0.51 sec
+100% tests passed, 0 tests failed out of 3
+```
+
+根据数量运行测试(运行测试2到4)产生的结果是:
+
+```bash
+$ ctest -I 2,4
+
+Start 2: feature-b
+1/3 Test #2: feature-b ........................ Passed 0.11 sec
+Start 3: feature-c
+2/3 Test #3: feature-c ........................ Passed 0.11 sec
+Start 4: feature-d
+3/3 Test #4: feature-d ........................ Passed 0.51 sec
+100% tests passed, 0 tests failed out of 3
+```
+
+### 更多信息
+
+尝试使用`$ ctest --help`，将看到有大量的选项可供用来定制测试。
+
+## 使用测试固件
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-10 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+这个示例的灵感来自于Craig Scott，我们建议读者也参考相应的博客文章来了解更多的背景知识，https://crascit.com/2016/10/18/test-fixtures-withcmake-ctest/ ，此示例的动机是演示如何使用测试固件。这对于更复杂的测试非常有用，这些测试需要在测试运行前进行设置，以及在测试完成后执行清理操作(例如：创建示例数据库、设置连接、断开连接、清理测试数据库等等)。我们需要运行一个设置或清理操作的测试，并能够以一种可预测和健壮的方式自动触发这些步骤，而不需要引入代码重复。这些设置和清理步骤可以委托给测试框架(例如Google Test或Catch2)，我们在这里将演示如何在CMake级别实现测试固件。
+
+### 准备工作
+
+我们将准备4个Python脚本，并将它们放在`test`目录下:`setup.py`、`features-a.py`、`features-b.py`和`clean-up.py`。
+
+### 具体实施
+
+我们从`CMakeLists.txt`结构开始，附加一些步骤如下:
+
+1. 基础CMake语句:
+
+```cmake
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+# project name
+project(recipe-10 LANGUAGES NONE)
+
+# detect python
+find_package(PythonInterp REQUIRED)
+
+# define tests
+enable_testing()
+```
+
+2. 然后，定义了4个测试步骤，并将它们绑定到一个固件上:
+
+```cmake
+add_test(
+  NAME setup
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/setup.py
+  )
+set_tests_properties(
+  setup
+  PROPERTIES
+  	FIXTURES_SETUP my-fixture
+  )
+add_test(
+  NAME feature-a
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-a.py
+  )
+add_test(
+  NAME feature-b
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-b.py
+  )
+set_tests_properties(
+  feature-a
+  feature-b
+  PROPERTIES
+  	FIXTURES_REQUIRED my-fixture
+  )
+add_test(
+  NAME cleanup
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/cleanup.py
+  )
+set_tests_properties(
+  cleanup
+  PROPERTIES
+  	FIXTURES_CLEANUP my-fixture
+  )
+```
+
+3. 运行整个集合，如下面的输出所示:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ ctest
+
+Start 1: setup
+1/4 Test #1: setup ............................ Passed 0.01 sec
+Start 2: feature-a
+2/4 Test #2: feature-a ........................ Passed 0.01 sec
+Start 3: feature-b
+3/4 Test #3: feature-b ........................ Passed 0.00 sec
+Start 4: cleanup
+4/4 Test #4: cleanup .......................... Passed 0.01 sec
+
+100% tests passed, 0 tests failed out of 4
+```
+
+4. 然而，当我们试图单独运行测试特性时。它正确地调用设置步骤和清理步骤:
+
+```bash
+$ ctest -R feature-a
+
+Start 1: setup
+1/3 Test #1: setup ............................ Passed 0.01 sec
+Start 2: feature-a
+2/3 Test #2: feature-a ........................ Passed 0.00 sec
+Start 4: cleanup
+3/3 Test #4: cleanup .......................... Passed 0.01 sec
+
+100% tests passed, 0 tests failed out of 3
+```
+
+### 工作原理
+
+在本例中，我们定义了一个文本固件，并将其称为`my-fixture`。我们为安装测试提供了`FIXTURES_SETUP`属性，并为清理测试了`FIXTURES_CLEANUP`属性，并且使用`FIXTURES_REQUIRED`，我们确保测试`feature-a`和`feature-b`都需要安装和清理步骤才能运行。将它们绑定在一起，可以确保在定义良好的状态下，进入和离开相应的步骤。
+
+
+
+# CMake 完整使用教程 之六 配置时和构建时的操作
+
+
+
+本章的主要内容有：
+
+- 使用平台无关的文件操作
+- 配置时运行自定义命令
+- 构建时运行自定义命令:Ⅰ. 使用add_custom_command
+- 构建时运行自定义命令:Ⅱ. 使用add_custom_target
+- 构建时为特定目标运行自定义命令
+- 探究编译和链接命令
+- 探究编译器标志命令
+- 探究可执行命令
+- 使用生成器表达式微调配置和编译
+
+我们将学习如何在配置和构建时，执行自定义操作。先简单回顾一下，与CMake工作流程相关的时序:
+
+1. **CMake时**或**构建时**：CMake正在运行，并处理项目中的`CMakeLists.txt`文件。
+2. **生成时**：生成构建工具(如Makefile或Visual Studio项目文件)。
+3. **构建时**：由CMake生成相应平台的原生构建脚本，在脚本中调用原生工具构建。此时，将调用编译器在特定的构建目录中构建目标(可执行文件和库)。
+4. **CTest时**或**测试时**：运行测试套件以检查目标是否按预期执行。
+5. **CDash时**或**报告时**：当测试结果上传到仪表板上，与其他开发人员共享测试报告。
+6. **安装时**：当目标、源文件、可执行程序和库，从构建目录安装到相应位置。
+7. **CPack时**或**打包时**：将项目打包用以分发时，可以是源码，也可以是二进制。
+8. **包安装时**：新生成的包在系统范围内安装。
+
+本章会介绍在配置和构建时的自定义行为，我们将学习如何使用这些命令:
+
+- **execute_process**，从CMake中执行任意进程，并检索它们的输出。
+- **add_custom_target**，创建执行自定义命令的目标。
+- **add_custom_command**，指定必须执行的命令，以生成文件或在其他目标的特定生成事件中生成。
+
+## 使用平台无关的文件操作
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-01 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+有些项目构建时，可能需要与平台的文件系统进行交互。也就是检查文件是否存在、创建新文件来存储临时信息、创建或提取打包文件等等。使用CMake不仅能够在不同的平台上生成构建系统，还能够在不复杂的逻辑情况下，进行文件操作，从而独立于操作系统。本示例将展示，如何以可移植的方式下载库文件。
+
+### 准备工作
+
+我们将展示如何提取Eigen库文件，并使用提取的源文件编译我们的项目。这个示例中，将重用第3章第7节的线性代数例子`linear-algebra.cpp`，用来检测外部库和程序、检测特征库。这里，假设已经包含Eigen库文件，已在项目构建前下载。
+
+### 具体实施
+
+项目需要解压缩Eigen打包文件，并相应地为目标设置包含目录:
+
+1. 首先，使能C++11项目:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+project(recipe-01 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 我们将自定义目标添加到构建系统中，自定义目标将提取构建目录中的库文件:
+
+```cmake
+add_custom_target(unpack-eigen
+  ALL
+  COMMAND
+  	${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_SOURCE_DIR}/eigen-eigen-5a0156e40feb.tar.gz
+  COMMAND
+  	${CMAKE_COMMAND} -E rename eigen-eigen-5a0156e40feb eigen-3.3.4
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_BINARY_DIR}
+  COMMENT
+  	"Unpacking Eigen3 in ${CMAKE_CURRENT_BINARY_DIR}/eigen-3.3.4"
+  )
+```
+
+3. 为源文件添加了一个可执行目标:
+
+```cmake
+add_executable(linear-algebra linear-algebra.cpp)
+```
+
+4. 由于源文件的编译依赖于Eigen头文件，需要显式地指定可执行目标对自定义目标的依赖关系:
+
+```cmake
+add_dependencies(linear-algebra unpack-eigen)
+```
+
+5. 最后，指定包含哪些目录:
+
+```cmake
+target_include_directories(linear-algebra
+  PRIVATE
+  	${CMAKE_CURRENT_BINARY_DIR}/eigen-3.3.4
+  )
+```
+
+### 工作原理
+
+细看`add_custom_target`这个命令：
+
+```cmake
+add_custom_target(unpack-eigen
+  ALL
+  COMMAND
+  	${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_SOURCE_DIR}/eigen-eigen-5a0156e40feb.tar.gz
+  COMMAND
+  	${CMAKE_COMMAND} -E rename eigen-eigen-5a0156e40feb eigen-3.3.4
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_BINARY_DIR}
+  COMMENT
+  	"Unpacking Eigen3 in ${CMAKE_CURRENT_BINARY_DIR}/eigen-3.3.4"
+  )
+```
+
+构建系统中引入了一个名为`unpack-eigen`的目标。因为我们传递了`ALL`参数，目标将始终被执行。`COMMAND`参数指定要执行哪些命令。本例中，我们希望提取存档并将提取的目录重命名为`egan -3.3.4`，通过以下两个命令实现:
+
+```cmake
+${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_SOURCE_DIR}/eigen-eigen-
+5a0156e40feb.tar.gz
+${CMAKE_COMMAND} -E rename eigen-eigen-5a0156e40feb eigen-3.3.4
+```
+
+注意，使用`-E`标志调用CMake命令本身来执行实际的工作。对于许多常见操作，CMake实现了一个对所有操作系统都通用的接口，这使得构建系统独立于特定的平台。`add_custom_target`命令中的下一个参数是工作目录。我们的示例中，它对应于构建目录：`CMAKE_CURRENT_BINARY_DIR`。最后一个参数`COMMENT`，用于指定CMake在执行自定义目标时输出什么样的消息。
+
+### 更多信息
+
+构建过程中必须执行一系列没有输出的命令时，可以使用`add_custom_target`命令。正如我们在本示例中所示，可以将自定义目标指定为项目中其他目标的依赖项。此外，自定义目标还可以依赖于其他目标。
+
+使用`-E`标志可以以与操作系统无关的方式，运行许多公共操作。运行`cmake -E`或`cmake -E help`可以获得特定操作系统的完整列表。例如，这是Linux系统上命令的摘要:
+
+```bash
+Usage: cmake -E <command> [arguments...]
+Available commands:
+  capabilities              - Report capabilities built into cmake in JSON format
+  chdir dir cmd [args...]   - run command in a given directory
+  compare_files file1 file2 - check if file1 is same as file2
+  copy <file>... destination  - copy files to destination (either file or directory)
+  copy_directory <dir>... destination   - copy content of <dir>... directories to 'destination' directory
+  copy_if_different <file>... destination  - copy files if it has changed
+  echo [<string>...]        - displays arguments as text
+  echo_append [<string>...] - displays arguments as text but no new line
+  env [--unset=NAME]... [NAME=VALUE]... COMMAND [ARG]...
+                            - run command in a modified environment
+  environment               - display the current environment
+  make_directory <dir>...   - create parent and <dir> directories
+  md5sum <file>...          - create MD5 checksum of files
+  sha1sum <file>...         - create SHA1 checksum of files
+  sha224sum <file>...       - create SHA224 checksum of files
+  sha256sum <file>...       - create SHA256 checksum of files
+  sha384sum <file>...       - create SHA384 checksum of files
+  sha512sum <file>...       - create SHA512 checksum of files
+  remove [-f] <file>...     - remove the file(s), use -f to force it
+  remove_directory dir      - remove a directory and its contents
+  rename oldname newname    - rename a file or directory (on one volume)
+  server                    - start cmake in server mode
+  sleep <number>...         - sleep for given number of seconds
+  tar [cxt][vf][zjJ] file.tar [file/dir1 file/dir2 ...]
+                            - create or extract a tar or zip archive
+  time command [args...]    - run command and display elapsed time
+  touch file                - touch a file.
+  touch_nocreate file       - touch a file but do not create it.
+Available on UNIX only:
+  create_symlink old new    - create a symbolic link new -> old
+```
+
+
+
+
+
 
 
 

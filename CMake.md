@@ -7106,6 +7106,684 @@ Available on UNIX only:
   create_symlink old new    - create a symbolic link new -> old
 ```
 
+## 配置时运行自定义命令
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-05/recipe-02 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+运行CMake生成构建系统，从而指定原生构建工具必须执行哪些命令，以及按照什么顺序执行。我们已经了解了CMake如何在配置时运行许多子任务，以便找到工作的编译器和必要的依赖项。本示例中，我们将讨论如何使用`execute_process`命令在配置时运行定制化命令。
+
+### 具体实施
+
+第3章第3节中，我们已经展示了`execute_process`查找Python模块NumPy时的用法。本例中，我们将使用`execute_process`命令来确定，是否存在特定的Python模块(本例中为Python CFFI)，如果存在，我们在进行版本确定:
+
+1. 对于这个简单的例子，不需要语言支持:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-02 LANGUAGES NONE)
+```
+
+2. 我们要求Python解释器执行一个简短的代码片段，因此，需要使用`find_package`来查找解释器：
+
+```cmake
+find_package(PythonInterp REQUIRED)
+```
+
+3. 然后，调用`execute_process`来运行一个简短的Python代码段；下一节中，我们将更详细地讨论这个命令:
+
+```cmake
+# this is set as variable to prepare
+# for abstraction using loops or functions
+set(_module_name "cffi")
+
+execute_process(
+  COMMAND
+  	${PYTHON_EXECUTABLE} "-c" "import ${_module_name}; print(${_module_name}.__version__)"
+  OUTPUT_VARIABLE _stdout
+  ERROR_VARIABLE _stderr
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE
+  )
+```
+
+4. 然后，打印结果：
+
+```cmake
+if(_stderr MATCHES "ModuleNotFoundError")
+	message(STATUS "Module ${_module_name} not found")
+else()
+	message(STATUS "Found module ${_module_name} v${_stdout}")
+endif()
+```
+
+5. 下面是一个配置示例(假设Python CFFI包安装在相应的Python环境中):
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+-- Found PythonInterp: /home/user/cmake-cookbook/chapter-05/recipe-02/example/venv/bin/python (found version "3.6.5")
+-- Found module cffi v1.11.5
+```
+
+### 工作原理
+
+`execute_process`命令将从当前正在执行的CMake进程中派生一个或多个子进程，从而提供了在配置项目时运行任意命令的方法。可以在一次调用`execute_process`时执行多个命令。但请注意，每个命令的输出将通过管道传输到下一个命令中。该命令接受多个参数:
+
+- WORKING_DIRECTORY，指定应该在哪个目录中执行命令。
+- RESULT_VARIABLE将包含进程运行的结果。这要么是一个整数，表示执行成功，要么是一个带有错误条件的字符串。
+- OUTPUT_VARIABLE和ERROR_VARIABLE将包含执行命令的标准输出和标准错误。由于命令的输出是通过管道传输的，因此只有最后一个命令的标准输出才会保存到OUTPUT_VARIABLE中。
+- INPUT_FILE指定标准输入重定向的文件名
+- OUTPUT_FILE指定标准输出重定向的文件名
+- ERROR_FILE指定标准错误输出重定向的文件名
+- 设置OUTPUT_QUIET和ERROR_QUIET后，CMake将静默地忽略标准输出和标准错误。
+- 设置OUTPUT_STRIP_TRAILING_WHITESPACE，可以删除运行命令的标准输出中的任何尾随空格
+- 设置ERROR_STRIP_TRAILING_WHITESPACE，可以删除运行命令的错误输出中的任何尾随空格。
+
+有了这些了解这些参数，回到我们的例子当中:
+
+```cmake
+set(_module_name "cffi")
+
+execute_process(
+  COMMAND
+  	${PYTHON_EXECUTABLE} "-c" "import ${_module_name}; print(${_module_name}.__version__)"
+  OUTPUT_VARIABLE _stdout
+  ERROR_VARIABLE _stderr
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE
+  )
+if(_stderr MATCHES "ModuleNotFoundError")
+	message(STATUS "Module ${_module_name} not found")
+else()
+  message(STATUS "Found module ${_module_name} v${_stdout}")
+endif()
+```
+
+该命令检查`python -c "import cffi; print(cffi.__version__)"`的输出。如果没有找到模块，`_stderr`将包含`ModuleNotFoundError`，我们将在if语句中对其进行检查。本例中，我们将打印`Module cffi not found`。如果导入成功，Python代码将打印模块的版本，该模块通过管道输入`_stdout`，这样就可以打印如下内容:
+
+```cmake
+message(STATUS "Found module ${_module_name} v${_stdout}")
+```
+
+### 更多信息
+
+本例中，只打印了结果，但实际项目中，可以警告、中止配置，或者设置可以查询的变量，来切换某些配置选项。
+
+代码示例会扩展到多个Python模块(如Cython)，以避免代码重复。一种选择是使用`foreach`循环模块名，另一种方法是将代码封装为函数或宏。我们将在第7章中讨论这些封装。
+
+第9章中，我们将使用Python CFFI和Cython。现在的示例，可以作为有用的、可重用的代码片段，来检测这些包是否存在。
+
+## 构建时运行自定义命令:Ⅰ. 使用add_custom_command
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-03 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+项目的构建目标取决于命令的结果，这些命令只能在构建系统生成完成后的构建执行。CMake提供了三个选项来在构建时执行自定义命令:
+
+1. 使用`add_custom_command`编译目标，生成输出文件。
+2. `add_custom_target`的执行没有输出。
+3. 构建目标前后，`add_custom_command`的执行可以没有输出。
+
+这三个选项强制执行特定的语义，并且不可互换。接下来的三个示例将演示具体的用法。
+
+### 准备工作
+
+我们将重用第3章第4节中的C++示例，以说明如何使用`add_custom_command`的第一个选项。代码示例中，我们了解了现有的BLAS和LAPACK库，并编译了一个很小的C++包装器库，以调用线性代数的Fortran实现。
+
+我们将把代码分成两部分。`linear-algebra.cpp`的源文件与第3章、第4章没有区别，并且将包含线性代数包装器库的头文件和针对编译库的链接。源代码将打包到一个压缩的tar存档文件中，该存档文件随示例项目一起提供。存档文件将在构建时提取，并在可执行文件生成之前，编译线性代数的包装器库。
+
+### 具体实施
+
+`CMakeLists.txt`必须包含一个自定义命令，来提取线性代数包装器库的源代码：
+
+1. 从CMake最低版本、项目名称和支持语言的定义开始:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES CXX Fortran)
+```
+
+2. 选择C++11标准:
+
+```cmake
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+3. 然后，在系统上查找BLAS和LAPACK库:
+
+```cmake
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+```
+
+4. 声明一个变量`wrap_BLAS_LAPACK_sources`来保存`wrap_BLAS_LAPACK.tar.gz`压缩包文件的名称:
+
+```cmake
+set(wrap_BLAS_LAPACK_sources
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.hpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.hpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.cpp
+  )
+```
+
+5. 声明自定义命令来提取`wrap_BLAS_LAPACK.tar.gz`压缩包，并更新提取文件的时间戳。注意这个`wrap_BLAS_LAPACK_sources`变量的预期输出:
+
+```cmake
+add_custom_command(
+  OUTPUT
+  	${wrap_BLAS_LAPACK_sources}
+  COMMAND
+  	${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_SOURCE_DIR}/wrap_BLAS_LAPACK.tar.gz
+  COMMAND
+  	${CMAKE_COMMAND} -E touch ${wrap_BLAS_LAPACK_sources}
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_BINARY_DIR}
+  DEPENDS
+  	${CMAKE_CURRENT_SOURCE_DIR}/wrap_BLAS_LAPACK.tar.gz
+  COMMENT
+  	"Unpacking C++ wrappers for BLAS/LAPACK"
+  VERBATIM
+  )
+```
+
+6. 接下来，添加一个库目标，源文件是新解压出来的:
+
+```cmake
+add_library(math "")
+
+target_sources(math
+  PRIVATE
+  	${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.cpp
+  	${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.cpp
+  PUBLIC
+  	${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.hpp
+  	${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.hpp
+  )
+  
+target_include_directories(math
+  INTERFACE
+  	${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK
+  )
+  
+target_link_libraries(math
+  PUBLIC
+  	${LAPACK_LIBRARIES}
+  )
+```
+
+7. 最后，添加`linear-algebra`可执行目标。可执行目标链接到库:
+
+```cmake
+add_executable(linear-algebra linear-algebra.cpp)
+
+target_link_libraries(linear-algebra
+  PRIVATE
+  	math
+  )
+```
+
+8. 我们配置、构建和执行示例:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./linear-algebra 1000
+
+C_DSCAL done
+C_DGESV done
+info is 0
+check is 4.35597e-10
+```
+
+### 工作原理
+
+让我们来了解一下`add_custom_command`的使用:
+
+```cmake
+add_custom_command(
+  OUTPUT
+  	${wrap_BLAS_LAPACK_sources}
+  COMMAND
+  	${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_SOURCE_DIR}/wrap_BLAS_LAPACK.tar.gz
+  COMMAND
+  	${CMAKE_COMMAND} -E touch ${wrap_BLAS_LAPACK_sources}
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_BINARY_DIR}
+  DEPENDS
+  	${CMAKE_CURRENT_SOURCE_DIR}/wrap_BLAS_LAPACK.tar.gz
+  COMMENT
+  	"Unpacking C++ wrappers for BLAS/LAPACK"
+  VERBATIM
+  )
+```
+
+`add_custom_command`向目标添加规则，并通过执行命令生成输出。`add_custom_command`中声明的任何目标，即在相同的`CMakeLists.txt`中声明的任何目标，使用输出的任何文件作为源文件的目标，在构建时会有规则生成这些文件。因此，源文件生成在构建时，目标和自定义命令在构建系统生成时，将自动处理依赖关系。
+
+我们的例子中，输出是压缩`tar`包，其中包含有源文件。要检测和使用这些文件，必须在构建时提取打包文件。通过使用带有`-E`标志的CMake命令，以实现平台独立性。下一个命令会更新提取文件的时间戳。这样做是为了确保没有处理陈旧文件。`WORKING_DIRECTORY`可以指定在何处执行命令。示例中，`CMAKE_CURRENT_BINARY_DIR`是当前正在处理的构建目录。`DEPENDS`参数列出了自定义命令的依赖项。例子中，压缩的`tar`是一个依赖项。CMake使用`COMMENT`字段在构建时打印状态消息。最后，`VERBATIM`告诉CMake为生成器和平台生成正确的命令，从而确保完全独立。
+
+我们来仔细看看这用使用方式和打包库的创建：
+
+```cmake
+add_library(math "")
+
+target_sources(math
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.cpp
+  PUBLIC
+    ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.hpp
+    ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.hpp
+  )
+  
+target_include_directories(math
+  INTERFACE
+  	${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK
+  )
+  
+target_link_libraries(math
+  PUBLIC
+  	${LAPACK_LIBRARIES}
+  )
+```
+
+我们声明一个没有源的库目标，是因为后续使用`target_sources`填充目标的源。这里实现了一个非常重要的目标，即让依赖于此目标的目标，了解需要哪些目录和头文件，以便成功地使用库。C++源文件的目标是`PRIVATE`，因此只用于构建库。因为目标及其依赖项都需要使用它们来成功编译，所以头文件是`PUBLIC`。包含目录使用`target_include_categories`指定，其中`wrap_BLAS_LAPACK`声明为`INTERFACE`，因为只有依赖于`math`目标的目标需要它。
+
+`add_custom_command`有两个限制:
+
+- 只有在相同的`CMakeLists.txt`中，指定了所有依赖于其输出的目标时才有效。
+- 对于不同的独立目标，使用`add_custom_command`的输出可以重新执行定制命令。这可能会导致冲突，应该避免这种情况的发生。
+
+第二个限制，可以使用`add_dependencies`来避免。不过，规避这两个限制的正确方法是使用`add_custom_target`命令，我们将在下一节的示例中详细介绍。
+
+## 构建时运行自定义命令:Ⅱ. 使用add_custom_target
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-04 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+我们在前面的示例，讨论了`add_custom_command`有一些限制，可以通过`add_custom_target`绕过这些限制。这个CMake命令将引入新的目标，与`add_custom_command`相反，这些目标依次执行不返回输出。可以将`add_custom_target`和`add_custom_command`结合使用。使用这种方法，可以与其依赖项所在目录不同的目录指定自定义目标，CMake基础设施对项目设计模块化非常有用。
+
+### 准备工作
+
+我们将重用前一节示例，对源码进行简单的修改。特别是，将把压缩后的`tar`打包文件放在名为`deps`的子目录中，而不是存储在主目录中。这个子目录包含它自己的`CMakeLists.txt`，将由主`CMakeLists.txt`调用。
+
+### 具体实施
+
+我们将从主`CMakeLists.txt`开始，然后讨论`deps/CMakeLists.txt`:
+
+1. 声明启用C++11：
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+project(recipe-04 LANGUAGES CXX Fortran)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 现在，继续讨论`deps/CMakeLists.txt`。这通过`add_subdirectory`命令实现:
+
+```cmake
+add_subdirectory(deps)
+```
+
+3. `deps/CMakeLists.txt`中，我们首先定位必要的库(BLAS和LAPACK):
+
+```cmake
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+```
+
+4. 然后，我们将`tar`包的内容汇集到一个变量`MATH_SRCS`中:
+
+```cmake
+set(MATH_SRCS
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.hpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.hpp
+  )
+```
+
+5. 列出要打包的源之后，定义一个目标和一个命令。这个组合用于提取`${CMAKE_CURRENT_BINARY_DIR}`中的包。但是，这里我们在一个不同的范围内，引用`deps/CMakeLists.txt`，因此`tar`包将存放在到主项目构建目录下的`deps`子目录中:
+
+```cmake
+add_custom_target(BLAS_LAPACK_wrappers
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_BINARY_DIR}
+  DEPENDS
+  	${MATH_SRCS}
+  COMMENT
+  	"Intermediate BLAS_LAPACK_wrappers target"
+  VERBATIM
+  )
+
+add_custom_command(
+  OUTPUT
+  	${MATH_SRCS}
+  COMMAND
+  	${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_SOURCE_DIR}/wrap_BLAS_LAPACK.tar.gz
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_BINARY_DIR}
+  DEPENDS
+  	${CMAKE_CURRENT_SOURCE_DIR}/wrap_BLAS_LAPACK.tar.gz
+  COMMENT
+  	"Unpacking C++ wrappers for BLAS/LAPACK"
+  )
+```
+
+6. 添加数学库作为目标，并指定相应的源，包括目录和链接库:
+
+```cmake
+add_library(math "")
+
+target_sources(math
+  PRIVATE
+  	${MATH_SRCS}
+  )
+
+target_include_directories(math
+  INTERFACE
+  	${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK
+  )
+
+# BLAS_LIBRARIES are included in LAPACK_LIBRARIES
+target_link_libraries(math
+  PUBLIC
+  	${LAPACK_LIBRARIES}
+  )
+```
+
+7. 执行完`deps/CMakeLists.txt`中的命令，返回到父范围，定义可执行目标，并将其链接到另一个目录的数学库:
+
+```cmake
+add_executable(linear-algebra linear-algebra.cpp)
+
+target_link_libraries(linear-algebra
+  PRIVATE
+  	math
+  )
+```
+
+### 工作原理
+
+用户可以使用`add_custom_target`，在目标中执行定制命令。这与我们前面讨论的`add_custom_command`略有不同。`add_custom_target`添加的目标没有输出，因此总会执行。因此，可以在子目录中引入自定义目标，并且仍然能够在主`CMakeLists.txt`中引用它。
+
+本例中，使用`add_custom_target`和`add_custom_command`提取了源文件的包。这些源文件稍后用于编译另一个库，我们设法在另一个(父)目录范围内链接这个库。构建`CMakeLists.txt`文件的过程中，`tar`包是在`deps`下，`deps`是项目构建目录下的一个子目录。这是因为在CMake中，构建树的结构与源树的层次结构相同。
+
+这个示例中有一个值得注意的细节，就是我们把数学库的源标记为`PRIVATE`:
+
+```cmake
+set(MATH_SRCS
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxBLAS.hpp
+  ${CMAKE_CURRENT_BINARY_DIR}/wrap_BLAS_LAPACK/CxxLAPACK.hpp
+  )
+
+# ...
+
+add_library(math "")
+
+target_sources(math
+  PRIVATE
+  	${MATH_SRCS}
+  )
+
+# ...
+```
+
+虽然这些源代码是`PRIVATE`，但我们在父范围内编译了`linear-algebra.cpp`，并且这个源代码包括`CxxBLAS.hpp`和`CxxLAPACK.hpp`。为什么这里使用`PRIVATE`，以及如何编译`linear-algebra.cpp`，并构建可执行文件呢？如果将头文件标记为`PUBLIC`, CMake就会在创建时停止，并出现一个错误，“无法找到源文件”，因为要生成(提取)还不存在于文件树中的源文件。
+
+这是一个已知的限制(参见https://gitlab.kitware.com/cmake/cmake/issues/1633 ，以及相关的博客文章:https://samthursfield.wordpress.com/2015/11/21/cmake-depende-ncies-targets-and-files-and-custom-commands )。我们通过声明源代码为`PRIVATE`来解决这个限制。这样CMake时，没有获得对不存在源文件的依赖。但是，CMake内置的C/C++文件依赖关系扫描器在构建时获取它们，并编译和链接源代码。
+
+## 构建时为特定目标运行自定义命令
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-05 中找到，其中包含一个Fortran例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+本节示例将展示，如何使用`add_custom_command`的第二个参数，来执行没有输出的自定义操作，这对于构建或链接特定目标之前或之后执行某些操作非常有用。由于自定义命令仅在必须构建目标本身时才执行，因此我们实现了对其执行的目标级控制。我们将通过一个示例来演示，在构建目标之前打印目标的链接，然后在编译后，立即测量编译后，可执行文件的静态分配大小。
+
+### 准备工作
+
+本示例中，我们将使用Fortran代码(`example.f90`):
+
+```fortran
+program example
+
+  implicit none
+  
+  real(8) :: array(20000000)
+  real(8) :: r
+  integer :: i
+  
+  do i = 1, size(array)
+    call random_number(r)
+    array(i) = r
+  end do
+  
+  print *, sum(array)
+  
+end program
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

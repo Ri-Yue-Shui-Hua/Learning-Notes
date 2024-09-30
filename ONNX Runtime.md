@@ -214,7 +214,91 @@ ONNX Runtime提供各种图形优化来提高性能。图优化本质上是图�
 
 
 
+# onnxruntime常用接口与源码
 
+## 常用接口
+
+```c++
+#include "onnxruntime_cxx_api.h"
+
+Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "location");
+  // Initialize session options
+  Ort::SessionOptions session_options;
+  session_options.SetInterOpNumThreads(1);
+  session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+  Ort::AllocatorWithDefaultOptions allocator;
+  // Create a session and load the model into memory
+#ifdef _WIN32
+  std::wstring wsmodelPath = this->to_wstring(modelPath);
+  Ort::Session session(env, wsmodelPath.c_str(), session_options);
+#else
+  Ort::Session session(env, modelPath.c_str(), session_options);
+#endif
+
+  int batch_size = 1;
+  int index = -1;
+  try
+  {
+    std::vector<const char*> output_node_names;
+    if (index != -1)
+    {
+      output_node_names = {this->output_node_names[index]};
+    }
+    else
+    {
+      output_node_names = this->output_node_names;
+    }
+    this->input_node_dims[0] = batch_size;
+    auto input_tensor_size = inputImgTensor.size();
+    auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        memory_info, inputImgTensor.data(), input_tensor_size, input_node_dims.data(), 4);
+    auto output_tensors =
+        session.Run(Ort::RunOptions{nullptr}, input_node_names.data(), &input_tensor,
+                    input_node_names.size(), output_node_names.data(), output_node_names.size());
+    int size = output_tensors.size();
+    postProcess(output_tensors);
+  }
+  catch (Ort::Exception& e)
+  {
+    throw e;
+  }
+```
+
+
+
+封装获取信息
+
+```c++
+void getModelInfo(Ort::Session& session,
+                                    Ort::AllocatorWithDefaultOptions& allocator)
+{
+  size_t num_input_nodes = session.GetInputCount();
+  size_t num_output_nodes = session.GetOutputCount();
+  this->output_node_dims.resize(num_output_nodes);
+  this->output_dims_counts.resize(num_output_nodes);
+  this->input_node_names.clear();
+  this->output_node_names.clear();
+  for (int i = 0; i < num_input_nodes; i++)
+  {
+    auto input_node_name = session.GetInputName(i, allocator);
+    this->input_node_names.push_back(input_node_name);
+    Ort::TypeInfo type_info = session.GetInputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    ONNXTensorElementDataType type = tensor_info.GetElementType();
+    this->input_node_dims = tensor_info.GetShape();
+  }
+  for (int i = 0; i < num_output_nodes; i++)
+  {
+    auto output_node_name = session.GetOutputName(i, allocator);
+    this->output_node_names.push_back(output_node_name);
+    Ort::TypeInfo type_info = session.GetOutputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    this->output_node_dims[i] = tensor_info.GetShape();
+    this->output_dims_counts[i] = tensor_info.GetDimensionsCount();
+  }
+}
+```
 
 
 

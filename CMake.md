@@ -7572,17 +7572,182 @@ program example
 end program
 ```
 
+虽然我们选择了Fortran，但Fortran代码对于后面的讨论并不重要，因为有很多遗留的Fortran代码，存在静态分配大小的问题。
+
+这段代码中，我们定义了一个包含20,000,000双精度浮点数的数组，这个数组占用160MB的内存。在这里，我们并不是推荐这样的编程实践。一般来说，这些内存的分配和代码中是否使用这段内存无关。一个更好的方法是只在需要时动态分配数组，随后立即释放。
+
+示例代码用随机数填充数组，并计算它们的和——这样是为了确保数组确实被使用，并且编译器不会优化分配。我们将使用Python脚本(`static-size.py`)来统计二进制文件静态分配的大小，该脚本用size命令来封装:
+
+```python
+import subprocess
+import sys
+
+# for simplicity we do not check number of
+# arguments and whether the file really exists
+file_path = sys.argv[-1]
+try:
+	output = subprocess.check_output(['size', file_path]).decode('utf-8')
+except FileNotFoundError:
+	print('command "size" is not available on this platform')
+	sys.exit(0)
+  
+size = 0.0
+for line in output.split('\n'):
+	if file_path in line:
+		# we are interested in the 4th number on this line
+		size = int(line.split()[3])
+    
+print('{0:.3f} MB'.format(size/1.0e6))
+```
+
+要打印链接行，我们将使用第二个Python helper脚本(`echo-file.py`)打印文件的内容:
+
+```python
+import sys
+
+# for simplicity we do not verify the number and
+# type of arguments
+file_path = sys.argv[-1]
+try:
+	with open(file_path, 'r') as f:
+print(f.read())
+except FileNotFoundError:
+	print('ERROR: file {0} not found'.format(file_path))
+
+```
+
+### 具体实施
+
+来看看`CMakeLists.txt`：
+
+1. 首先声明一个Fortran项目:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-05 LANGUAGES Fortran)
+```
+
+2. 例子依赖于Python解释器，所以以一种可移植的方式执行helper脚本:
+
+```cmake
+find_package(PythonInterp REQUIRED)
+```
+
+3. 本例中，默认为“Release”构建类型，以便CMake添加优化标志:
+
+```cmake
+if(NOT CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+```
+
+4. 现在，定义可执行目标:
+
+```cmake
+add_executable(example "")
+
+target_sources(example
+  PRIVATE
+  	example.f90
+  )
+```
+
+5. 然后，定义一个自定义命令，在`example`目标在已链接之前，打印链接行:
+
+```cmake
+add_custom_command(
+  TARGET
+  	example
+  PRE_LINK
+  	COMMAND
+  		${PYTHON_EXECUTABLE}
+  		${CMAKE_CURRENT_SOURCE_DIR}/echo-file.py
+			${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/example.dir/link.txt
+  COMMENT
+  	"link line:"
+  VERBATIM
+  )
+```
+
+6. 测试一下。观察打印的链接行和可执行文件的静态大小:
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+
+Scanning dependencies of target example
+[ 50%] Building Fortran object CMakeFiles/example.dir/example.f90.o
+[100%] Linking Fortran executable example
+link line:
+/usr/bin/f95 -O3 -DNDEBUG -O3 CMakeFiles/example.dir/example.f90.o -o example
+static size of executable:
+160.003 MB
+[100%] Built target example
+```
+
+### 工作原理
+
+当声明了库或可执行目标，就可以使用`add_custom_command`将其他命令锁定到目标上。这些命令将在特定的时间执行，与它们所附加的目标的执行相关联。CMake通过以下选项，定制命令执行顺序:
+
+- **PRE_BUILD**：在执行与目标相关的任何其他规则之前执行的命令。
+- **PRE_LINK**：使用此选项，命令在编译目标之后，调用链接器或归档器之前执行。Visual Studio 7或更高版本之外的生成器中使用`PRE_BUILD`将被解释为`PRE_LINK`。
+- **POST_BUILD**：如前所述，这些命令将在执行给定目标的所有规则之后运行。
+
+本例中，将两个自定义命令绑定到可执行目标。`PRE_LINK`命令将`${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/example.dir/link.txt`的内容打印到屏幕上。在我们的例子中，链接行是这样的:
+
+```bash
+link line:
+/usr/bin/f95 -O3 -DNDEBUG -O3 CMakeFiles/example.dir/example.f90.o -o example
+```
+
+使用Python包装器来实现这一点，它依赖于shell命令。
+
+第二步中，`POST_BUILD`自定义命令调用Python helper脚本`static-size.py`，生成器表达式`$<target_file:example>`作为参数。CMake将在生成时(即生成生成系统时)将生成器表达式扩展到目标文件路径。然后，Python脚本`static-size.py`使用size命令获取可执行文件的静态分配大小，将其转换为MB，并打印结果。我们的例子中，获得了预期的160 MB:
+
+```bash
+static size of executable:
+160.003 MB
+```
+
+## 探究编译和链接命令
 
 
 
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-06 中找到，其中包含一个C++例子。该示例在CMake 3.9版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。代码库还有一个与CMake 3.5兼容的示例。*
 
+生成构建系统期间最常见的操作，是试图评估在哪种系统上构建项目。这意味着要找出哪些功能工作，哪些不工作，并相应地调整项目的编译。使用的方法是查询依赖项是否被满足的信号，或者在代码库中是否启用工作区。接下来的几个示例，将展示如何使用CMake执行这些操作。我们将特别讨论以下事宜:
 
+1. 如何确保代码能成功编译为可执行文件。
+2. 如何确保编译器理解相应的标志。
+3. 如何确保特定代码能成功编译为运行可执行程序。
 
+### 准备工作
 
+示例将展示如何使用来自对应的`Check<LANG>SourceCompiles.cmake`标准模块的`check_<lang>_source_compiles`函数，以评估给定编译器是否可以将预定义的代码编译成可执行文件。该命令可帮助你确定:
 
+- 编译器支持所需的特性。
+- 链接器工作正常，并理解特定的标志。
+- 可以使用`find_package`找到的包含目录和库。
 
+本示例中，我们将展示如何检测OpenMP 4.5标准的循环特性，以便在C++可执行文件中使用。使用一个C++源文件，来探测编译器是否支持这样的特性。CMake提供了一个附加命令`try_compile`来探究编译。本示例将展示，如何使用这两种方法。
 
+**TIPS**:*可以使用CMake命令行界面来获取关于特定模块(`cmake --help-module <module-name>`)和命令(`cmake --help-command <command-name>`)的文档。示例中，`cmake --help-module CheckCXXSourceCompiles`将把`check_cxx_source_compiles`函数的文档输出到屏幕上，而`cmake --help-command try_compile`将对`try_compile`命令执行相同的操作。*
 
+### 具体实施
+
+我们将同时使用`try_compile`和`check_cxx_source_compiles`，并比较这两个命令的工作方式:
+
+1. 创建一个C++11工程：
+
+```cmake
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+project(recipe-06 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
 
 
 

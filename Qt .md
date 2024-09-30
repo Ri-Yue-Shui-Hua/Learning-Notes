@@ -336,9 +336,78 @@ QMessageBox::aboutQt(this, tr("About Qt消息框"));
 
 消息框显示用于向用户发出警报的主要[文本](https://doc.qt.io/qt-5/qmessagebox.html#text-prop)，用于进一步说明警报或询问用户问题的[信息性文本](https://doc.qt.io/qt-5/qmessagebox.html#informativeText-prop)，以及用于在用户需要时提供更多数据的可选[详细文本](https://doc.qt.io/qt-5/qmessagebox.html#detailedText-prop)。
 
+## eventFilter事件过滤器
 
 
 
+[QT笔记——eventFilter事件过滤器_qt::eventfilter-CSDN博客](https://blog.csdn.net/lion_cxq/article/details/118858188#:~:text=第三步：重写我们的事)
+
+> Qt [框架](https://so.csdn.net/so/search?q=框架&spm=1001.2101.3001.7020)内部为我们提供了一系列的事件处理机制，当窗口事件产生之后，事件会经过：事件派发 ->
+> 事件过滤->事件分发->事件处理几个阶段。
+
+
+
+> 每一个 Qt 应用程序都对应一个唯一的 QApplication 应用程序对象，然后调用这个对象的 exec() 函数，这样 Qt
+> 框架内部的事件检测就开始了（程序将进入事件循环来[监听](https://so.csdn.net/so/search?q=监听&spm=1001.2101.3001.7020)应用程序的事件）。
+
+**事件分发过程：**
+
+当事件产生之后，Qt 使用应用程序对象调用 notify() 函数将事件发送到指定的窗口：
+
+```cpp
+[override virtual] bool QApplication::notify(QObject *receiver, QEvent *e);
+```
+
+事件在发送过程中可以通过事件过滤器进行过滤，默认不对任何产生的事件进行过滤：
+
+```cpp
+// 需要先给窗口安装过滤器, 该事件才会触发
+void QObject::installEventFilter(QObject *filterObj)		//事件过滤器
+[virtual] bool QObject::eventFilter(QObject *watched, QEvent *event)	
+```
+
+事件分发器会将分类之后的事件（鼠标事件、键盘事件、绘图事件。。。）分发给对应的事件处理器函数进行处理，每个事件处理器函数都有默认的处理动作（我们也可以重写这些事件处理器函数），比如：鼠标事件：
+
+```cpp
+// 鼠标按下
+[virtual protected] void QWidget::mousePressEvent(QMouseEvent *event);
+// 鼠标释放
+[virtual protected] void QWidget::mouseReleaseEvent(QMouseEvent *event);
+// 鼠标移动
+[virtual protected] void QWidget::mouseMoveEvent(QMouseEvent *event);
+```
+
+
+
+## Qt撤销/回撤框架：QUndoStack
+
+[Qt撤销回/撤框架：QUndoStack-CSDN博客](https://blog.csdn.net/kenfan1647/article/details/116523512#:~:text=每当堆栈通过撤消和回)
+
+
+
+```markmap
+# QUndoStack
+## QUndoStack类是QUndoCommand对象的堆栈
+## 属性成员
+### active 保存此堆栈的活动状态
+### canRedo 是否存在可以重做的命令
+### canUndo 是否存在可以撤销的命令
+### clean 保存此对战的清洁状态
+### redoText 保存下一个回撤的命令的回撤文本
+### undoLimit 保存此堆栈上的最大命令数
+### undoText 保存写一个撤销的命令的撤销文本
+
+## 成员函数
+### QUndoStack 构造一个空的撤销堆栈
+### [signal]indexChanged 撤销或回撤命令时都会发出此信号
+### redo 通过调用QUndoCommand::redo()回撤当前命令。递增当前命令索引。
+### push 将cmd推入堆栈或将其与最近执行的命令合并。
+### isclean 是否是清洁状态
+```
+
+
+
+## 鼠标事件与键盘事件
 
 
 

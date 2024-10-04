@@ -7749,57 +7749,734 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 ```
 
+2. 查找比一起支持的OpenMP:
+
+```cmake
+find_package(OpenMP)
+
+if(OpenMP_FOUND)
+	# ... <- the steps below will be placed here
+else()
+	message(STATUS "OpenMP not found: no test for taskloop is run")
+endif()
+```
+
+3. 如果找到OpenMP，再检查所需的特性是否可用。为此，设置了一个临时目录，`try_compile`将在这个目录下来生成中间文件。我们把它放在前面步骤中引入的`if`语句中:
+
+```cmake
+set(_scratch_dir ${CMAKE_CURRENT_BINARY_DIR}/omp_try_compile)
+```
+
+4. 调用`try_compile`生成一个小项目，以尝试编译源文件`taskloop.cpp`。编译成功或失败的状态，将保存到`omp_taskloop_test_1`变量中。需要为这个示例编译设置适当的编译器标志、包括目录和链接库。因为使用导入的目标`OpenMP::OpenMP_CXX`，所以只需将`LINK_LIBRARIES`选项设置为`try_compile`即可。如果编译成功，则任务循环特性可用，我们为用户打印一条消息:
+
+```cmake
+try_compile(
+  omp_taskloop_test_1
+  	${_scratch_dir}
+  SOURCES
+  	${CMAKE_CURRENT_SOURCE_DIR}/taskloop.cpp
+  LINK_LIBRARIES
+  	OpenMP::OpenMP_CXX
+  )
+message(STATUS "Result of try_compile: ${omp_taskloop_test_1}")
+
+```
+
+5. 要使用`check_cxx_source_compiles`函数，需要包含`CheckCXXSourceCompiles.cmake`模块文件。其他语言也有类似的模块文件，C(`CheckCSourceCompiles.cmake`)和Fortran(`CheckFortranSourceCompiles.cmake`):
+
+```cmake
+include(CheckCXXSourceCompiles)
+```
+
+6. 我们复制源文件的内容，通过`file(READ ...)`命令读取内容到一个变量中，试图编译和连接这个变量:
+
+```cmake
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/taskloop.cpp _snippet)
+```
+
+7. 我们设置了`CMAKE_REQUIRED_LIBRARIES`。这对于下一步正确调用编译器是必需的。注意使用导入的`OpenMP::OpenMP_CXX`目标，它还将设置正确的编译器标志和包含目录:
+
+```cmake
+set(CMAKE_REQUIRED_LIBRARIES OpenMP::OpenMP_CXX)
+```
+
+8. 使用代码片段作为参数，调用`check_cxx_source_compiles`函数。检查结果将保存到`omp_taskloop_test_2`变量中:
+
+```cmake
+check_cxx_source_compiles("${_snippet}" omp_taskloop_test_2)
+```
+
+9. 调用`check_cxx_source_compiles`并向用户打印消息之前，我们取消了变量的设置:
+
+```cmake
+unset(CMAKE_REQUIRED_LIBRARIES)
+message(STATUS "Result of check_cxx_source_compiles: ${omp_taskloop_test_2}"
+```
+
+10. 最后，进行测试：
+
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+
+-- ...
+-- Found OpenMP_CXX: -fopenmp (found version "4.5")
+-- Found OpenMP: TRUE (found version "4.5")
+-- Result of try_compile: TRUE
+-- Performing Test omp_taskloop_test_2
+-- Performing Test omp_taskloop_test_2 - Success
+-- Result of check_cxx_source_compiles: 1
+```
+
+### 工作原理
+
+`try_compile`和`check_cxx_source_compiles`都将编译源文件，并将其链接到可执行文件中。如果这些操作成功，那么输出变量`omp_task_loop_test_1`(前者)和`omp_task_loop_test_2`(后者)将被设置为`TRUE`。然而，这两个命令实现的方式略有不同。`check_<lang>_source_compiles`命令是`try_compile`命令的简化包装。因此，它提供了一个接口:
+
+1. 要编译的代码片段必须作为CMake变量传入。大多数情况下，这意味着必须使用`file(READ ...)`来读取文件。然后，代码片段被保存到构建目录的`CMakeFiles/CMakeTmp`子目录中。
+2. 微调编译和链接，必须通过设置以下CMake变量进行:
+   - CMAKE_REQUIRED_FLAGS：设置编译器标志。
+   - CMAKE_REQUIRED_DEFINITIONS：设置预编译宏。
+   - CMAKE_REQUIRED_INCLUDES：设置包含目录列表。
+   - CMAKE_REQUIRED_LIBRARIES：设置可执行目标能够连接的库列表。
+3. 调用`check_<lang>_compiles_function`之后，必须手动取消对这些变量的设置，以确保后续使用中，不会保留当前内容。
+
+**NOTE**:*使用CMake 3.9中可以对于OpenMP目标进行导入,但是目前的配置也可以使用CMake的早期版本，通过手动为`check_cxx_source_compiles`设置所需的标志和库:`set(CMAKE_REQUIRED_FLAGS ${OpenMP_CXX_FLAGS})`和`set(CMAKE_REQUIRED_LIBRARIES ${OpenMP_CXX_LIBRARIES})`。*
+
+**TIPS**:*Fortran下，CMake代码的格式通常是固定的，但也有意外情况。为了处理这些意外，需要为`check_fortran_source_compiles`设置`-ffree-form`编译标志。可以通过`set(CMAKE_REQUIRED_FLAGS “-ffree-form")`实现。*
+
+这个接口反映了：测试编译是通过，在CMake调用中直接生成和执行构建和连接命令来执行的。
+
+命令`try_compile`提供了更完整的接口和两种不同的操作模式:
+
+1. 以一个完整的CMake项目作为输入，并基于它的`CMakeLists.txt`配置、构建和链接。这种操作模式提供了更好的灵活性，因为要编译项目的复杂度是可以选择的。
+2. 提供了源文件，和用于包含目录、链接库和编译器标志的配置选项。
+
+因此，`try_compile`基于在项目上调用CMake，其中`CMakeLists.txt`已经存在(在第一种操作模式中)，或者基于传递给`try_compile`的参数动态生成文件。
+
+### 更多信息
+
+本示例中概述的类型检查并不总是万无一失的，并且可能产生假阳性和假阴性。作为一个例子，可以尝试注释掉包含`CMAKE_REQUIRED_LIBRARIES`的行。运行这个例子仍然会报告“成功”，这是因为编译器将忽略OpenMP的`pragma`字段。
+
+当返回了错误的结果时，应该怎么做？构建目录的`CMakeFiles`子目录中的`CMakeOutput.log`和`CMakeError.log`文件会提供一些线索。它们记录了CMake运行的操作的标准输出和标准错误。如果怀疑结果有误，应该通过搜索保存编译检查结果的变量集来检查前者。如果你怀疑有误报，你应该检查后者。
+
+调试`try_compile`需要一些注意事项。即使检查不成功，CMake也会删除由该命令生成的所有文件。幸运的是，`debug-trycompile`将阻止CMake进行删除。如果你的代码中有多个`try_compile`调用，一次只能调试一个:
+
+1. 运行CMake，不使用`--debug-trycompile`，将运行所有`try_compile`命令，并清理它们的执行目录和文件。
+2. 从CMake缓存中删除保存检查结果的变量。缓存保存到`CMakeCache.txt`文件中。要清除变量的内容，可以使用`-U`的CLI开关，后面跟着变量的名称，它将被解释为一个全局表达式，因此可以使用`*`和`?`：
+
+```bash
+$ cmake -U <variable-name>
+```
+
+1. 再次运行CMake，使用`--debug-trycompile`。只有清除缓存的检查才会重新运行。这次不会清理执行目录和文件。
+
+**TIPS**:*`try_compile`提供了灵活和干净的接口，特别是当编译的代码不是一个简短的代码时。我们建议在测试编译时，小代码片段时使用`check_<lang>_source_compile`。其他情况下，选择`try_compile`。*
+
+## 探究编译器标志命令
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-07 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+设置编译器标志，对是否能正确编译至关重要。不同的编译器供应商，为类似的特性实现有不同的标志。即使是来自同一供应商的不同编译器版本，在可用标志上也可能存在细微的差异。有时，会引入一些便于调试或优化目的的新标志。本示例中，我们将展示如何检查所选编译器是否可用某些标志。
+
+### 准备工作
+
+Sanitizers(请参考https://github.com/google/Sanitizers )已经成为静态和动态代码分析的非常有用的工具。通过使用适当的标志重新编译代码并链接到必要的库，可以检查内存错误(地址清理器)、未初始化的读取(内存清理器)、线程安全(线程清理器)和未定义的行为(未定义的行为清理器)相关的问题。与同类型分析工具相比，Sanitizers带来的性能损失通常要小得多，而且往往提供关于检测到的问题的更详细的信息。缺点是，代码(可能还有工具链的一部分)需要使用附加的标志重新编译。
+
+本示例中，我们将设置一个项目，使用不同的Sanitizers来编译代码，并展示如何检查，编译器标志是否正确使用。
+
+### 具体实施
+
+Clang编译器已经提供了Sanitizers，GCC也将其引入工具集中。它们是为C和C++程序而设计的。最新版本的Fortran也能使用这些编译标志，并生成正确的仪表化库和可执行程序。不过，本文将重点介绍C++示例。
+
+1. 声明一个C++11项目：
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-07 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 声明列表`CXX_BASIC_FLAGS`，其中包含构建项目时始终使用的编译器标志`-g3`和`-O1`:
+
+```cmake
+list(APPEND CXX_BASIC_FLAGS "-g3" "-O1")
+```
+
+3. 这里需要包括CMake模块`CheckCXXCompilerFlag.cmake`。C的模块为`CheckCCompilerFlag.cmake`，Fotran的模块为`CheckFortranCompilerFlag.cmake`(Fotran的模块是在CMake 3.3添加)
+
+```cmake
+include(CheckCXXCompilerFlag)
+```
+
+4. 我们声明一个`ASAN_FLAGS`变量，它包含Sanitizer所需的标志，并设置`CMAKE_REQUIRED_FLAGS`变量，`check_cxx_compiler_flag`函数在内部使用该变量:
+
+```cmake
+set(ASAN_FLAGS "-fsanitize=address -fno-omit-frame-pointer")
+set(CMAKE_REQUIRED_FLAGS ${ASAN_FLAGS})
+```
+
+5. 我们调用`check_cxx_compiler_flag`来确保编译器理解`ASAN_FLAGS`变量中的标志。调用函数后，我们取消设置`CMAKE_REQUIRED_FLAGS`:
+
+```cmake
+check_cxx_compiler_flag(${ASAN_FLAGS} asan_works)
+unset(CMAKE_REQUIRED_FLAGS)
+```
+
+6. 如果编译器理解这些选项，我们将变量转换为一个列表，用分号替换空格:
+
+```cmake
+if(asan_works)
+	string(REPLACE " " ";" _asan_flags ${ASAN_FLAGS})
+```
+
+7. 我们添加了一个可执行的目标，为代码定位Sanitizer:
+
+```cmake
+add_executable(asan-example asan-example.cpp)
+```
+
+8. 我们为可执行文件设置编译器标志，以包含基本的和Sanitizer标志:
+
+```cmake
+target_compile_options(asan-example
+  PUBLIC
+    ${CXX_BASIC_FLAGS}
+    ${_asan_flags}
+  )
+```
+
+9. 最后，我们还将Sanitizer标志添加到链接器使用的标志集中。这将关闭`if(asan_works)`块:
+
+```cmake
+target_link_libraries(asan-example PUBLIC ${_asan_flags})
+endif()
+```
+
+完整的示例源代码还展示了如何编译和链接线程、内存和未定义的行为清理器的示例可执行程序。这里不详细讨论这些，因为我们使用相同的模式来检查编译器标志。
+
+**NOTE**:*在GitHub上可以找到一个定制的CMake模块，用于在您的系统上寻找对Sanitizer的支持:https://github.com/arsenm/sanitizers-cmake*
+
+### 工作原理
+
+`check_<lang>_compiler_flag`函数只是`check_<lang>_source_compiles`函数的包装器。这些包装器为特定代码提供了一种快捷方式。在用例中，检查特定代码片段是否编译并不重要，重要的是编译器是否理解一组标志。
+
+Sanitizer的编译器标志也需要传递给链接器。可以使用`check_<lang>_compiler_flag`函数来实现，我们需要在调用之前设置`CMAKE_REQUIRED_FLAGS`变量。否则，作为第一个参数传递的标志将只对编译器使用。
+
+当前配置中需要注意的是，使用字符串变量和列表来设置编译器标志。使用`target_compile_options`和`target_link_libraries`函数的字符串变量，将导致编译器和/或链接器报错。CMake将传递引用的这些选项，从而导致解析错误。这说明有必要用列表和随后的字符串操作来表示这些选项，并用分号替换字符串变量中的空格。实际上，CMake中的列表是分号分隔的字符串。
+
+### 更多信息
+
+我们将在第7章，编写一个函数来测试和设置编译器标志，到时候再来回顾，并概括测试和设置编译器标志的模式。
+
+## 探究可执行命令
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-08 中找到，其中包含一个C/C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+目前为止，我们已经展示了如何检查给定的源代码，是否可以由所选的编译器编译，以及如何确保所需的编译器和链接器标志可用。此示例中，将显示如何检查是否可以在当前系统上编译、链接和运行代码。
+
+### 准备工作
+
+本示例的代码示例是复用第3章第9节的配置，并进行微小的改动。之前，我们展示了如何在您的系统上找到ZeroMQ库并将其链接到一个C程序中。本示例中，在生成实际的C++程序之前，我们将检查一个使用GNU/Linux上的系统UUID库的小型C程序是否能够实际运行。
+
+### 具体实施
+
+开始构建C++项目之前，我们希望检查GNU/Linux上的UUID系统库是否可以被链接。这可以通过以下一系列步骤来实现:
+
+1. 声明一个混合的C和C++11程序。这是必要的，因为我们要编译和运行的测试代码片段是使用C语言完成:
+
+```cmake
+cmake_minimum_required(VERSION 3.6 FATAL_ERROR)
+project(recipe-08 LANGUAGES CXX C)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 我们需要在系统上找到UUID库。这通过使用`pkg-config`实现的。要求搜索返回一个CMake导入目标使用`IMPORTED_TARGET`参数:
+
+```cmake
+find_package(PkgConfig REQUIRED QUIET)
+pkg_search_module(UUID REQUIRED uuid IMPORTED_TARGET)
+if(TARGET PkgConfig::UUID)
+	message(STATUS "Found libuuid")
+endif()
+```
+
+3. 接下来，需要使用`CheckCSourceRuns.cmake`模块。C++的是`CheckCXXSourceRuns.cmake`模块。但到CMake 3.11为止，Fortran语言还没有这样的模块:
+
+```cmake
+include(CheckCSourceRuns)
+```
+
+4. 我们声明一个`_test_uuid`变量，其中包含要编译和运行的C代码段:
+
+```cmake
+set(_test_uuid
+"
+#include <uuid/uuid.h>
+int main(int argc, char * argv[]) {
+  uuid_t uuid;
+  uuid_generate(uuid);
+  return 0;
+}
+")
+```
+
+5. 我们声明`CMAKE_REQUIRED_LIBRARIES`变量后，对`check_c_source_runs`函数的调用。接下来，调用`check_c_source_runs`，其中测试代码作为第一个参数，`_runs`变量作为第二个参数，以保存执行的检查结果。之后，取消`CMAKE_REQUIRED_LIBRARIES`变量的设置:
+
+```cmake
+set(CMAKE_REQUIRED_LIBRARIES PkgConfig::UUID)
+check_c_source_runs("${_test_uuid}" _runs)
+unset(CMAKE_REQUIRED_LIBRARIES)
+```
+
+6. 如果检查没有成功，要么是代码段没有编译，要么是没有运行，我们会用致命的错误停止配置:
+
+```cmake
+if(NOT _runs)
+	message(FATAL_ERROR "Cannot run a simple C executable using libuuid!")
+endif()
+```
+
+7. 若成功，我们继续添加C++可执行文件作为目标，并链接到UUID:
+
+```cmake
+add_executable(use-uuid use-uuid.cpp)
+target_link_libraries(use-uuid
+  PUBLIC
+  	PkgConfig::UUID
+  )
+```
+
+### 工作原理
+
+`check_<lang>_source_runs`用于C和C++的函数，与`check_<lang>_source_compile`相同，但在实际运行生成的可执行文件的地方需要添加一个步骤。对于`check_<lang>_source_compiles`, `check_<lang>_source_runs`的执行可以通过以下变量来进行:
+
+- CMAKE_REQUIRED_FLAGS：设置编译器标志。
+- CMAKE_REQUIRED_DEFINITIONS：设置预编译宏。
+- CMAKE_REQUIRED_INCLUDES：设置包含目录列表。
+- CMAKE_REQUIRED_LIBRARIES：设置可执行目标需要连接的库列表。
+
+由于使用`pkg_search_module`生成的为导入目标，所以只需要将`CMAKE_REQUIRES_LIBRARIES`设置为`PkgConfig::UUID`，就可以正确设置包含目录。
+
+正如`check_<lang>_source_compiles`是`try_compile`的包装器，`check_<lang>_source_runs`是CMake中另一个功能更强大的命令的包装器:`try_run`。因此，可以编写一个`CheckFortranSourceRuns.cmake`模块，通过适当包装`try_run`, 提供与C和C++模块相同的功能。
+
+**NOTE**:*`pkg_search_module`只能定义导入目标(CMake 3.6),但目前的示例可以使工作，3.6之前版本的CMake可以通过手动设置所需的包括目录和库`check_c_source_runs`如下:`set(CMAKE_REQUIRED_INCLUDES $ {UUID_INCLUDE_DIRS})`和`set(CMAKE_REQUIRED_LIBRARIES $ {UUID_LIBRARIES})`。*
+
+## 使用生成器表达式微调配置和编译
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-5/recipe-09 中找到，其中包含一个C++例子。该示例在CMake 3.9版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+CMake提供了一种特定于领域的语言，来描述如何配置和构建项目。自然会引入描述特定条件的变量，并在`CMakeLists.txt`中包含基于此的条件语句。
+
+本示例中，我们将重新讨论生成器表达式。第4章中，以简洁地引用显式的测试可执行路径，使用了这些表达式。生成器表达式为逻辑和信息表达式，提供了一个强大而紧凑的模式，这些表达式在生成构建系统时进行评估，并生成特定于每个构建配置的信息。换句话说，生成器表达式用于引用仅在生成时已知，但在配置时未知或难于知晓的信息；对于文件名、文件位置和库文件后缀尤其如此。
+
+本例中，我们将使用生成器表达式，有条件地设置预处理器定义，并有条件地链接到消息传递接口库(Message Passing Interface, MPI)，并允许我们串行或使用MPI构建相同的源代码。
+
+**NOTE**:*本例中，我们将使用一个导入的目标来链接到MPI，该目标仅从CMake 3.9开始可用。但是，生成器表达式可以移植到CMake 3.0或更高版本。*
+
+### 准备工作
+
+我们将编译以下示例源代码(`example.cpp`):
+
+```cmake
+#include <iostream>
+
+#ifdef HAVE_MPI
+#include <mpi.h>
+#endif
+int main()
+{
+#ifdef HAVE_MPI
+  // initialize MPI
+  MPI_Init(NULL, NULL);
+
+  // query and print the rank
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  std::cout << "hello from rank " << rank << std::endl;
+
+  // initialize MPI
+  MPI_Finalize();
+#else
+  std::cout << "hello from a sequential binary" << std::endl;
+#endif /* HAVE_MPI */
+}
+```
+
+代码包含预处理语句(`#ifdef HAVE_MPI ... #else ... #endif`)，这样我们就可以用相同的源代码编译一个顺序的或并行的可执行文件了。
+
+### 具体实施
+
+编写`CMakeLists.txt`文件时，我们将重用第3章第6节的一些构建块:
+
+1. 声明一个C++11项目：
+
+```cmake
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+project(recipe-09 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+2. 然后，我们引入一个选项`USE_MPI`来选择MPI并行化，并将其设置为默认值`ON`。如果为`ON`，我们使用`find_package`来定位MPI环境:
+
+```cmake
+option(USE_MPI "Use MPI parallelization" ON)
+if(USE_MPI)
+	find_package(MPI REQUIRED)
+endif()
+```
+
+3. 然后定义可执行目标，并有条件地设置相应的库依赖项(`MPI::MPI_CXX`)和预处理器定义(`HAVE_MPI`)，稍后将对此进行解释:
+
+```cmake
+add_executable(example example.cpp)
+target_link_libraries(example
+  PUBLIC
+  	$<$<BOOL:${MPI_FOUND}>:MPI::MPI_CXX>
+  )
+target_compile_definitions(example
+  PRIVATE
+  	$<$<BOOL:${MPI_FOUND}>:HAVE_MPI>
+  )
+```
+
+4. 如果找到MPI，还将打印由`FindMPI.cmake`导出的`INTERFACE_LINK_LIBRARIES`，为了方便演示，使用了`cmake_print_properties()`函数:
+
+```cmake
+if(MPI_FOUND)
+  include(CMakePrintHelpers)
+  cmake_print_properties(
+    TARGETS MPI::MPI_CXX
+    PROPERTIES INTERFACE_LINK_LIBRARIES
+    )
+endif()
+```
+
+5. 首先使用默认MPI配置。观察`cmake_print_properties()`的输出:
+
+```bash
+$ mkdir -p build_mpi
+$ cd build_mpi
+$ cmake ..
+
+-- ...
+--
+Properties for TARGET MPI::MPI_CXX:
+MPI::MPI_CXX.INTERFACE_LINK_LIBRARIES = "-Wl,-rpath -Wl,/usr/lib/openmpi -Wl,--enable-new-dtags -pthread;/usr/lib/openmpi/libmpi_cxx.so;/usr/lib/openmpi/libmpi.so"
+
+```
+
+6. 编译并运行并行例子:
+
+```bash
+$ cmake --build .
+$ mpirun -np 2 ./example
+
+hello from rank 0
+hello from rank 1
+```
+
+7. 现在，创建一个新的构建目录，这次构建串行版本:
+
+```bash
+$ mkdir -p build_seq
+$ cd build_seq
+$ cmake -D USE_MPI=OFF ..
+$ cmake --build .
+$ ./example
+
+hello from a sequential binary
+```
+
+### 工作原理
+
+CMake分两个阶段生成项目的构建系统：配置阶段(解析`CMakeLists.txt`)和生成阶段(实际生成构建环境)。生成器表达式在第二阶段进行计算，可以使用仅在生成时才能知道的信息来调整构建系统。生成器表达式在交叉编译时特别有用，一些可用的信息只有解析`CMakeLists.txt`之后，或在多配置项目后获取，构建系统生成的所有项目可以有不同的配置，比如Debug和Release。
+
+本例中，将使用生成器表达式有条件地设置链接依赖项并编译定义。为此，可以关注这两个表达式:
+
+```cmake
+target_link_libraries(example
+  PUBLIC
+  	$<$<BOOL:${MPI_FOUND}>:MPI::MPI_CXX>
+  )
+target_compile_definitions(example
+  PRIVATE
+  	$<$<BOOL:${MPI_FOUND}>:HAVE_MPI>
+  )
+```
+
+如果`MPI_FOUND`为真，那么`$<BOOL:${MPI_FOUND}>`的值将为1。本例中，`$<$<BOOL:${MPI_FOUND}>:MPI::MPI_CXX>`将计算`MPI::MPI_CXX`，第二个生成器表达式将计算结果存在`HAVE_MPI`。如果将`USE_MPI`设置为`OFF`，则`MPI_FOUND`为假，两个生成器表达式的值都为空字符串，因此不会引入链接依赖关系，也不会设置预处理定义。
+
+我们可以通过`if`来达到同样的效果:
+
+```cmake
+if(MPI_FOUND)
+  target_link_libraries(example
+    PUBLIC
+    	MPI::MPI_CXX
+    )
+    
+  target_compile_definitions(example
+    PRIVATE
+    	HAVE_MPI
+    )
+endif()
+```
+
+这个解决方案不太优雅，但可读性更好。我们可以使用生成器表达式来重新表达`if`语句，而这个选择取决于个人喜好。但当我们需要访问或操作文件路径时，生成器表达式尤其出色，因为使用变量和`if`构造这些路径可能比较困难。本例中，我们更注重生成器表达式的可读性。第4章中，我们使用生成器表达式来解析特定目标的文件路径。第11章中，我们会再次来讨论生成器。
+
+### 更多信息
+
+CMake提供了三种类型的生成器表达式:
+
+- **逻辑表达式**，基本模式为`$<condition:outcome>`。基本条件为0表示false, 1表示true，但是只要使用了正确的关键字，任何布尔值都可以作为条件变量。
+- **信息表达式**，基本模式为`$<information>`或`$<information:input>`。这些表达式对一些构建系统信息求值，例如：包含目录、目标属性等等。这些表达式的输入参数可能是目标的名称，比如表达式`$<TARGET_PROPERTY:tgt,prop>`，将获得的信息是tgt目标上的prop属性。
+- **输出表达式**，基本模式为`$<operation>`或`$<operation:input>`。这些表达式可能基于一些输入参数，生成一个输出。它们的输出可以直接在CMake命令中使用，也可以与其他生成器表达式组合使用。例如, `- I$<JOIN:$<TARGET_PROPERTY:INCLUDE_DIRECTORIES>, -I>`将生成一个字符串，其中包含正在处理的目标的包含目录，每个目录的前缀由`-I`表示。
+
+有关生成器表达式的完整列表，请参考https://cmake.org/cmake/help/latest/manual/cmake-generator-expressions.7.html
 
 
 
 
 
+# CMake 完整使用教程 之七 生成源码
+
+[CMake 完整使用教程 之七 生成源码 | 来唧唧歪歪(Ljjyy.com) - 多读书多实践，勤思考善领悟](https://www.ljjyy.com/archives/2021/03/100657)
 
 
 
+本章的主要内容如下：
 
+- 配置时生成源码
+- 使用Python在配置时生成源码
+- 构建时使用Python生成源码
+- 记录项目版本信息以便报告
+- 从文件中记录项目版本
+- 配置时记录Git Hash值
+- 构建时记录Git Hash值
 
+大多数项目，使用版本控制跟踪源码。源代码通常作为构建系统的输入，将其转换为o文件、库或可执行程序。某些情况下，我们使用构建系统在配置或构建步骤时生成源代码。根据配置步骤中收集的信息，对源代码进行微调。另一个常用的方式，是记录有关配置或编译的信息，以保证代码行为可重现性。本章中，我们将演示使用CMake提供的源代码生成工具，以及各种相关的策略。
 
+## 配置时生成源码
 
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-01 中找到，其中包含一个Fortran/C例子。该示例在CMake 3.10版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows(使用MSYS Makefiles)上进行过测试。*
 
+代码生成在配置时发生，例如：CMake可以检测操作系统和可用库；基于这些信息，我们可以定制构建的源代码。本节和下面的章节中，我们将演示如何生成一个简单源文件，该文件定义了一个函数，用于报告构建系统配置。
 
+### 准备工作
 
+此示例的代码使用Fortran和C语言编写，第9章将讨论混合语言编程。主程序是一个简单的Fortran可执行程序，它调用一个C函数`print_info()`，该函数将打印配置信息。值得注意的是，在使用Fortran 2003时，编译器将处理命名问题(对于C函数的接口声明)，如示例所示。我们将使用的`example.f90`作为源文件:
 
+```fortran
+program hello_world
 
+  implicit none
+  
+  interface
+  	subroutine print_info() bind(c, name="print_info")
+  	end subroutine
+  end interface
+  
+  call print_info()
+  
+end program
+```
 
+C函数`print_info()`在模板文件`print_info.c.in`中定义。在配置时，以`@`开头和结尾的变量将被替换为实际值:
 
+```c++
+#include <stdio.h>
+#include <unistd.h>
 
+void print_info(void)
+{
+  printf("\n");
+  printf("Configuration and build information\n");
+  printf("-----------------------------------\n");
+  printf("\n");
+  printf("Who compiled | %s\n", "@_user_name@");
+  printf("Compilation hostname | %s\n", "@_host_name@");
+  printf("Fully qualified domain name | %s\n", "@_fqdn@");
+  printf("Operating system | %s\n",
+         "@_os_name@, @_os_release@, @_os_version@");
+  printf("Platform | %s\n", "@_os_platform@");
+  printf("Processor info | %s\n",
+         "@_processor_name@, @_processor_description@");
+  printf("CMake version | %s\n", "@CMAKE_VERSION@");
+  printf("CMake generator | %s\n", "@CMAKE_GENERATOR@");
+  printf("Configuration time | %s\n", "@_configuration_time@");
+  printf("Fortran compiler | %s\n", "@CMAKE_Fortran_COMPILER@");
+  printf("C compiler | %s\n", "@CMAKE_C_COMPILER@");
+  printf("\n");
 
+  fflush(stdout);
+}
+```
 
+### 具体实施
 
+在CMakeLists.txt中，我们首先必须对选项进行配置，并用它们的值替换`print_info.c.in`中相应的占位符。然后，将Fortran和C源代码编译成一个可执行文件:
 
+1. 声明了一个Fortran-C混合项目:
 
+```cmake
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+project(recipe-01 LANGUAGES Fortran C)
+```
 
+2. 使用`execute_process`为项目获取当且使用者的信息:
 
+```cmake
+execute_process(
+  COMMAND
+  	whoami
+  TIMEOUT
+  	1
+  OUTPUT_VARIABLE
+  	_user_name
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+```
 
+3. 使用`cmake_host_system_information()`函数(已经在第2章第5节遇到过)，可以查询很多系统信息:
 
+```cmake
+# host name information
+cmake_host_system_information(RESULT _host_name QUERY HOSTNAME)
+cmake_host_system_information(RESULT _fqdn QUERY FQDN)
 
+# processor information
+cmake_host_system_information(RESULT _processor_name QUERY PROCESSOR_NAME)
+cmake_host_system_information(RESULT _processor_description QUERY PROCESSOR_DESCRIPTION)
 
+# os information
+cmake_host_system_information(RESULT _os_name QUERY OS_NAME)
+cmake_host_system_information(RESULT _os_release QUERY OS_RELEASE)
+cmake_host_system_information(RESULT _os_version QUERY OS_VERSION)
+cmake_host_system_information(RESULT _os_platform QUERY OS_PLATFORM)
+```
 
+4. 捕获配置时的时间戳，并通过使用字符串操作函数:
 
+```cmake
+string(TIMESTAMP _configuration_time "%Y-%m-%d %H:%M:%S [UTC]" UTC)
+```
 
+5. 现在，准备好配置模板文件`print_info.c.in`。通过CMake的`configure_file`函数生成代码。注意，这里只要求以`@`开头和结尾的字符串被替换:
 
+```cmake
+configure_file(print_info.c.in print_info.c @ONLY)
+```
 
+6. 最后，我们添加一个可执行目标，并定义目标源：
 
+```cmake
+add_executable(example "")
+target_sources(example
+  PRIVATE
+    example.f90
+    ${CMAKE_CURRENT_BINARY_DIR}/print_info.c
+  )
+```
 
+7. 下面是一个输出示例：
 
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./example
 
+Configuration and build information
+-----------------------------------
+Who compiled | somebody
+Compilation hostname | laptop
+Fully qualified domain name | laptop
+Operating system | Linux, 4.16.13-1-ARCH, #1 SMP PREEMPT Thu May 31 23:29:29 UTC 2018
+Platform | x86_64
+Processor info | Unknown P6 family, 2 core Intel(R) Core(TM) i5-5200U CPU @ 2.20GHz
+CMake version | 3.11.3
+CMake generator | Unix Makefiles
+Configuration time | 2018-06-25 15:38:03 [UTC]
+Fortran compiler | /usr/bin/f95
+C compiler | /usr/bin/cc
+```
 
+### 工作原理
 
+`configure_file`命令可以复制文件，并用变量值替换它们的内容。示例中，使用`configure_file`修改模板文件的内容，并将其复制到一个位置，然后将其编译到可执行文件中。如何调用`configure_file`:
 
+```cmake
+configure_file(print_info.c.in print_info.c @ONLY)
+```
 
+第一个参数是模板的名称为`print_info.c.in`。CMake假设输入文件的目录，与项目的根目录相对；也就是说，在`${CMAKE_CURRENT_SOURCE_DIR}/print_info.c.in`。我们选择`print_info.c`，作为第二个参数是配置文件的名称。假设输出文件位于相对于项目构建目录的位置：`${CMAKE_CURRENT_BINARY_DIR}/print_info.c`。
 
+输入和输出文件作为参数时，CMake不仅将配置`@VAR@`变量，还将配置`${VAR}`变量。如果`${VAR}`是语法的一部分，并且不应该修改(例如在shell脚本中)，那么就很不方便。为了在引导CMake，应该将选项`@ONLY`传递给`configure_file`的调用，如前所述。
 
+### 更多信息
 
+注意，用值替换占位符时，CMake中的变量名应该与将要配置的文件中使用的变量名完全相同，并放在`@`之间。可以在调用`configure_file`时定义的任何CMake变量。我们的示例中，这包括所有内置的CMake变量，如`CMAKE_VERSION`或`CMAKE_GENERATOR`。此外，每当修改模板文件时，重新生成代码将触发生成系统的重新生成。这样，配置的文件将始终保持最新。
 
+**TIPS**:*通过使用`CMake --help-variable-list`，可以从CMake手册中获得完整的内部CMake变量列表。*
 
+**NOTE**:*`file(GENERATE…)`为提供了一个有趣的替代`configure_file`，这是因为`file`允许将生成器表达式作为配置文件的一部分进行计算。但是，每次运行CMake时，`file(GENERATE…)`都会更新输出文件，这将强制重新构建依赖于该输出的所有目标。详细可参见https://crascit.com/2017/04/18/generated-sources-in-cmake-build 。*
 
+## 使用Python在配置时生成源码
 
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-02 中找到，其中包含一个Fortran/C例子。该示例在CMake 3.10版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows(使用MSYS Makefile)上进行过测试。*
+
+本示例中，我们将再次从模板`print_info.c.in`生成`print_info.c`。但这一次，将假设CMake函数`configure_file()`没有创建源文件，然后使用Python脚本模拟这个过程。当然，对于实际的项目，我们可能更倾向于使用`configure_file()`，但有时使用Python生成源代码的需要时，我们也应该知道如何应对。
+
+这个示例有严重的限制，不能完全模拟`configure_file()`。我们在这里介绍的方法，不能生成一个自动依赖项，该依赖项将在构建时重新生成`print_info.c`。换句话说，如果在配置之后删除生成的`print_info.c`，则不会重新生成该文件，构建也会失败。要正确地模拟`configure_file()`，需要使用`add_custom_command()`和`add_custom_target()`。我们将在第3节中使用它们，来克服这个限制。
+
+这个示例中，我们将使用一个简单的Python脚本。这个脚本将读取`print_info.c.in`。用从CMake传递给Python脚本的参数替换文件中的占位符。对于更复杂的模板，我们建议使用外部工具，比如Jinja(参见[http://jinja.pocoo.org](http://jinja.pocoo.org/) )。
+
+```python
+def configure_file(input_file, output_file, vars_dict):
+
+  with input_file.open('r') as f:
+  	template = f.read()
+
+  for var in vars_dict: 
+  	template = template.replace('@' + var + '@', vars_dict[var])
+
+  with output_file.open('w') as f:
+  	f.write(template)
+```
+
+这个函数读取一个输入文件，遍历`vars_dict`变量中的目录，并用对应的值替换`@key@`，再将结果写入输出文件。这里的键值对，将由CMake提供。
+
+### 准备工作
+
+`print_info.c.in`和`example.f90`与之前的示例相同。此外，我们将使用Python脚本`configurator.py`，它提供了一个函数:
+
+```cmake
+def configure_file(input_file, output_file, vars_dict):
+  with input_file.open('r') as f:
+  	template = f.read()
+    
+  for var in vars_dict:
+  	template = template.replace('@' + var + '@', vars_dict[var])
+    
+  with output_file.open('w') as f:
+  	f.write(template)
+```
+
+该函数读取输入文件，遍历`vars_dict`字典的所有键，用对应的值替换模式`@key@`，并将结果写入输出文件(键值由CMake提供)。
+
+### 具体实施
+
+与前面的示例类似，我们需要配置一个模板文件，但这一次，使用Python脚本模拟`configure_file()`函数。我们保持CMakeLists.txt基本不变，并提供一组命令进行替换操作`configure_file(print_info.c.in print_info.c @ONLY)`，接下来将逐步介绍这些命令:
+
+1. 首先，构造一个变量`_config_script`，它将包含一个Python脚本，稍后我们将执行这个脚本:
 
 
 

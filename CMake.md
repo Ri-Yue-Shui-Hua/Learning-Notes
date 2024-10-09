@@ -8478,17 +8478,167 @@ def configure_file(input_file, output_file, vars_dict):
 
 1. 首先，构造一个变量`_config_script`，它将包含一个Python脚本，稍后我们将执行这个脚本:
 
+```cmake
+set(_config_script
+"
+from pathlib import Path
+source_dir = Path('${CMAKE_CURRENT_SOURCE_DIR}')
+binary_dir = Path('${CMAKE_CURRENT_BINARY_DIR}')
+input_file = source_dir / 'print_info.c.in'
+output_file = binary_dir / 'print_info.c'
 
+import sys
+sys.path.insert(0, str(source_dir))
 
+from configurator import configure_file
+vars_dict = {
+  '_user_name': '${_user_name}',
+  '_host_name': '${_host_name}',
+  '_fqdn': '${_fqdn}',
+  '_processor_name': '${_processor_name}',
+  '_processor_description': '${_processor_description}',
+  '_os_name': '${_os_name}',
+  '_os_release': '${_os_release}',
+  '_os_version': '${_os_version}',
+  '_os_platform': '${_os_platform}',
+  '_configuration_time': '${_configuration_time}',
+  'CMAKE_VERSION': '${CMAKE_VERSION}',
+  'CMAKE_GENERATOR': '${CMAKE_GENERATOR}',
+  'CMAKE_Fortran_COMPILER': '${CMAKE_Fortran_COMPILER}',
+  'CMAKE_C_COMPILER': '${CMAKE_C_COMPILER}',
+}
+configure_file(input_file, output_file, vars_dict)
+")
+```
 
+2. 使用`find_package`让CMake使用Python解释器:
 
+```cmake
+find_package(PythonInterp QUITE REQUIRED)
+```
 
+3. 如果找到Python解释器，则可以在CMake中执行`_config_script`，并生成`print_info.c`文件:
 
+```cmake
+execute_process(
+  COMMAND
+  	${PYTHON_EXECUTABLE} "-c" ${_config_script}
+  )
+```
 
+4. 之后，定义可执行目标和依赖项，这与前一个示例相同。所以，得到的输出没有变化。
 
+### 工作原理
 
+回顾一下对CMakeLists.txt的更改。
 
+我们执行了一个Python脚本生成`print_info.c`。运行Python脚本前，首先检测Python解释器，并构造Python脚本。Python脚本导入`configure_file`函数，我们在`configurator.py`中定义了这个函数。为它提供用于读写的文件位置，并将其值作为键值对。
 
+此示例展示了生成配置的另一种方法，将生成任务委托给外部脚本，可以将配置报告编译成可执行文件，甚至库目标。我们在前面的配置中认为的第一种方法更简洁，但是使用本示例中提供的方法，我们可以灵活地使用Python(或其他语言)，实现任何在配置时间所需的步骤。使用当前方法，我们可以通过脚本的方式执行类似`cmake_host_system_information()`的操作。
+
+但要记住，这种方法也有其局限性，它不能在构建时重新生成`print_info.c`的自动依赖项。下一个示例中，我们应对这个挑战。
+
+### 更多信息
+
+我们可以使用`get_cmake_property(_vars VARIABLES)`来获得所有变量的列表，而不是显式地构造`vars_dict`(这感觉有点重复)，并且可以遍历`_vars`的所有元素来访问它们的值:
+
+```cmake
+get_cmake_property(_vars VARIABLES)
+foreach(_var IN ITEMS ${_vars})
+  message("variable ${_var} has the value ${${_var}}") 
+endforeach()
+```
+
+使用这种方法，可以隐式地构建`vars_dict`。但是，必须注意转义包含字符的值，例如:`;`， Python会将其解析为一条指令的末尾。
+
+## 构建时使用Python生成源码
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-03 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+构建时根据某些规则生成冗长和重复的代码，同时避免在源代码存储库中显式地跟踪生成的代码生成源代码，是开发人员工具箱中的一个重要工具，例如：根据检测到的平台或体系结构生成不同的源代码。或者，可以使用Python，根据配置时收集的输入，在构建时生成高效的C++代码。其他生成器解析器，比如：Flex (https://github.com/westes/flex )和Bison(https://www.gnu.org/software/bison/ )；元对象编译器，如Qt的moc(http://doc.qt.io/qt5/moc.html )；序列化框架，如谷歌的protobuf (https://developers.google.com/protocol-buffers/ )。
+
+### 准备工作
+
+为了提供一个具体的例子，我们需要编写代码来验证一个数字是否是质数。现在有很多算法，例如：可以用埃拉托色尼的筛子(sieve of Eratosthenes)来分离质数和非质数。如果有很多验证数字，我们不希望对每一个数字都进行Eratosthenes筛选。我们想要做的是将所有质数一次制表，直到数字的上限，然后使用一个表查的方式，找来验证大量的数字。
+
+本例中，将在编译时使用Python为查找表(质数向量)生成C++代码。当然，为了解决这个特殊的编程问题，我们还可以使用C++生成查询表，并且可以在运行时执行查询。
+
+让我们从`generate.py`脚本开始。这个脚本接受两个命令行参数——一个整数范围和一个输出文件名:
+
+```python
+"""
+Generates C++ vector of prime numbers up to max_number
+using sieve of Eratosthenes.
+"""
+import pathlib
+import sys
+
+# for simplicity we do not verify argument list
+max_number = int(sys.argv[-2])
+output_file_name = pathlib.Path(sys.argv[-1])
+
+numbers = range(2, max_number + 1)
+is_prime = {number: True for number in numbers}
+
+for number in numbers:
+  current_position = number
+  if is_prime[current_position]:
+    while current_position <= max_number:
+      current_position += number
+      is_prime[current_position] = False
+      
+primes = (number for number in numbers if is_prime[number])
+
+code = """#pragma once
+
+#include <vector>
+
+const std::size_t max_number = {max_number};
+std::vector<int> & primes() {{
+  static std::vector<int> primes;
+  {push_back}
+  return primes;
+}}
+"""
+push_back = '\n'.join([' primes.push_back({:d});'.format(x) for x in primes])
+output_file_name.write_text(
+code.format(max_number=max_number, push_back=push_back))
+```
+
+我们的目标是生成一个`primes.hpp`，并将其包含在下面的示例代码中:
+
+```cpp
+#include "primes.hpp"
+
+#include <iostream>
+#include <vector>
+
+int main() {
+  std::cout << "all prime numbers up to " << max_number << ":";
+  
+  for (auto prime : primes())
+  	std::cout << " " << prime;
+  
+  std::cout << std::endl;
+  
+  return 0;
+}
+```
+
+### 具体实施
+
+下面是CMakeLists.txt命令的详解:
+
+1. 首先，定义项目并检测Python解释器:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(PythonInterp QUIET REQUIRED)
+```
 
 
 

@@ -8640,21 +8640,144 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PythonInterp QUIET REQUIRED)
 ```
 
+2. 将生成的代码放在`${CMAKE_CURRENT_BINARY_DIR}/generate`下，需要告诉CMake创建这个目录:
 
+```cmake
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+```
 
+3. Python脚本要求质数的上限，使用下面的命令，我们可以设置一个默认值:
 
+```cmake
+set(MAX_NUMBER "100" CACHE STRING "Upper bound for primes")
+```
 
+4. 接下来，定义一个自定义命令来生成头文件:
 
+```cmake
+add_custom_command(
+  OUTPUT
+  	${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  COMMAND
+  	${PYTHON_EXECUTABLE} generate.py ${MAX_NUMBER} 	${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS
+  	generate.py
+)
+```
 
+5. 最后，定义可执行文件及其目标，包括目录和依赖关系:
 
+```cmake
+add_executable(example "")
+target_sources(example
+  PRIVATE
+  	example.cpp
+  	${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  )
+target_include_directories(example
+  PRIVATE
+  	${CMAKE_CURRENT_BINARY_DIR}/generated
+  )
+```
 
+6. 准备测试:
 
+```bash
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./example
+all prime numbers up to 100: 2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71 73 79
+```
 
+### 具体实施
 
+为了生成头文件，我们定义了一个自定义命令，它执行`generate.py`脚本，并接受`${MAX_NUMBER}`和文件路径(`${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp`)作为参数:
 
+```cmake
+add_custom_command(
+  OUTPUT
+  	${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  COMMAND
+  	${PYTHON_EXECUTABLE} generate.py ${MAX_NUMBER} ${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  WORKING_DIRECTORY
+  	${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS
+  	generate.py
+  )
+```
 
+为了生成源代码，我们需要在可执行文件的定义中，使用`target_sources`很容易实现添加源代码作为依赖项:
 
+```cmake
+target_sources(example
+  PRIVATE
+  	example.cpp
+  	${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  )
+```
 
+前面的代码中，我们不需要定义新的目标。头文件将作为示例的依赖项生成，并在每次`generate.py`脚本更改时重新生成。如果代码生成脚本生成多个源文件，那么要将所有生成的文件列出，做为某些目标的依赖项。
+
+### 更多信息
+
+我们提到所有的生成文件，都应该作为某个目标的依赖项。但是，我们可能不知道这个文件列表，因为它是由生成文件的脚本决定的，这取决于我们提供给配置的输入。这种情况下，我们可能会尝试使用`file(GLOB…)`将生成的文件收集到一个列表中(参见https://cmake.org/cmake/help/v3.5/command/file.html )。
+
+`file(GLOB…)`在配置时执行，而代码生成是在构建时发生的。因此可能需要一个间接操作，将`file(GLOB…)`命令放在一个单独的CMake脚本中，使用`${CMAKE_COMMAND} -P`执行该脚本，以便在构建时获得生成的文件列表。
+
+## 记录项目版本信息以便报告
+
+**NOTE**:*此示例代码可以在 https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-04 中找到，其中包含一个C和Fortran例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。*
+
+代码版本很重要，不仅是为了可重复性，还为了记录API功能或简化支持请求和bug报告。源代码通常处于某种版本控制之下，例如：可以使用Git标记附加额外版本号(参见[https://semver.org](https://semver.org/) )。然而，不仅需要对源代码进行版本控制，而且可执行文件还需要记录项目版本，以便将其打印到代码输出或用户界面上。
+
+本例中，将在CMake源文件中定义版本号。我们的目标是在配置项目时将程序版本记录到头文件中。然后，生成的头文件可以包含在代码的正确位置和时间，以便将代码版本打印到输出文件或屏幕上。
+
+### 准备工作
+
+将使用以下C文件(`example.c`)打印版本信息:
+
+```cpp
+#include "version.h"
+
+#include <stdio.h>
+
+int main() {
+  printf("This is output from code %s\n", PROJECT_VERSION);
+  printf("Major version number: %i\n", PROJECT_VERSION_MAJOR);
+  printf("Minor version number: %i\n", PROJECT_VERSION_MINOR);
+  
+  printf("Hello CMake world!\n");
+}
+```
+
+这里，假设`PROJECT_VERSION_MAJOR`、`PROJECT_VERSION_MINOR`和`PROJECT_VERSION`是在`version.h`中定义的。目标是从以下模板中生成`version.h.in`:
+
+```ini
+#pragma once
+
+#define PROJECT_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define PROJECT_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define PROJECT_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+#define PROJECT_VERSION "v@PROJECT_VERSION@"
+```
+
+这里使用预处理器定义，也可以使用字符串或整数常量来提高类型安全性(稍后我们将对此进行演示)。从CMake的角度来看，这两种方法是相同的。
+
+### 如何实施
+
+我们将按照以下步骤，在模板头文件中对版本进行注册:
+
+1. 要跟踪代码版本，我们可以在CMakeLists.txt中调用CMake的`project`时定义项目版本:
+
+```cmake
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-04 VERSION 2.0.1 LANGUAGES C)
+```
 
 
 

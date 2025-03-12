@@ -236,7 +236,11 @@ markdown编辑器本身不支持字体、字号、颜色的修改。但因为mar
 
 
 
-## 思维导图
+
+
+## Mermaid
+
+
 
 ### Mermaid mindmap
 
@@ -275,9 +279,33 @@ mindmap
 
 参考：[GitHub - mermaid-js/mermaid: Generation of diagrams like flowcharts or sequence diagrams from text in a similar manner as markdown](https://github.com/mermaid-js/mermaid)
 
+### FlowChart
+
+[Flowcharts Syntax | Mermaid](https://mermaid.js.org/syntax/flowchart.html)
+
+```mermaid
+flowchart TB
+    c1-->a2
+    subgraph one
+    a1-->a2
+    end
+    subgraph two
+    b1-->b2
+    end
+    subgraph three
+    c1-->c2
+    end
+```
 
 
-### Markmap
+
+
+
+
+
+## Markmap
+
+
 
 如何使用：方法一（自动）
 目前此方法仅限 Windows 平台。
@@ -418,3 +446,9 @@ mindmap
 https://typorachina.com/guide/how-tos/embed-video-media-or-web-contents.html
 
 
+
+## 插入并排图片
+
+
+
+<center class="half">    <img src="img1.jpg" width="300"/>    <img src="img2.jpg" width="300"/> </center>

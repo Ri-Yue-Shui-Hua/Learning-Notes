@@ -18,7 +18,7 @@
 ### 5. ViT(Vision Transformer)
 - ICLR2021
 - Google Research, Brain Teeam
-- 
+  
 ### 6. IPT
 - 北京华为诺亚方舟实验室
 
